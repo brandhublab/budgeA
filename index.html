@@ -840,6 +840,86 @@
 </head>
 <body>
 
+<!-- 🔐 암호 보호 오버레이 -->
+<div id="pwOverlay" style="
+  position: fixed; inset: 0; z-index: 99999;
+  background: var(--bg, #f5f1ea);
+  display: flex; align-items: center; justify-content: center;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+">
+  <div style="
+    background: #fff; border: 1px solid #d4c8b5;
+    padding: 32px 36px; max-width: 380px; width: 88vw;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.08);
+  ">
+    <h2 style="margin: 0 0 6px; font-size: 1.1rem; color: #2a2520; font-weight: 700;">🔒 Protected</h2>
+    <p style="margin: 0 0 18px; font-size: 0.82rem; color: #6e6357; line-height: 1.5;">
+      이 대시보드는 암호로 보호되어 있습니다.
+    </p>
+    <input type="password" id="pwInput" placeholder="암호 입력" autofocus
+      style="width: 100%; padding: 11px 13px; border: 1px solid #d4c8b5;
+             font-family: inherit; font-size: 0.9rem; color: #2a2520;
+             background: #faf7f2; box-sizing: border-box; margin-bottom: 10px;">
+    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 14px; font-size: 0.8rem; color: #6e6357;">
+      <input type="checkbox" id="pwRemember" checked style="accent-color: #8b7355;">
+      <label for="pwRemember">이 브라우저에서 30일간 기억</label>
+    </div>
+    <button onclick="checkPassword()" style="
+      width: 100%; padding: 11px; background: #8b7355; color: #fff;
+      border: none; font-family: inherit; font-weight: 600; font-size: 0.88rem;
+      cursor: pointer;">
+      잠금 해제
+    </button>
+    <div id="pwError" style="margin-top: 10px; font-size: 0.78rem; color: #c44; display: none;">
+      암호가 틀렸습니다.
+    </div>
+  </div>
+</div>
+
+<script>
+// ⚠️ 암호 설정 - 원하는 암호로 바꿔주세요
+// SHA-256 해시를 쓰지만, 클라이언트 사이드 암호라 완벽한 보안은 아님
+// (일반 사용자는 못 풂, 개발자는 F12로 우회 가능)
+const PW_HASH = 'a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3'; // 기본값: "123"
+
+async function sha256(text) {
+  const buf = new TextEncoder().encode(text);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', buf);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function checkPassword() {
+  const input = document.getElementById('pwInput').value;
+  const hash = await sha256(input);
+  if (hash === PW_HASH) {
+    // 성공
+    if (document.getElementById('pwRemember').checked) {
+      const expiry = Date.now() + 30 * 24 * 60 * 60 * 1000; // 30일
+      localStorage.setItem('pw_unlock_until', expiry.toString());
+    }
+    document.getElementById('pwOverlay').style.display = 'none';
+  } else {
+    document.getElementById('pwError').style.display = 'block';
+    document.getElementById('pwInput').value = '';
+    document.getElementById('pwInput').focus();
+  }
+}
+
+// 이미 인증된 상태면 오버레이 숨김
+(function() {
+  const unlockUntil = parseInt(localStorage.getItem('pw_unlock_until') || '0');
+  if (unlockUntil > Date.now()) {
+    document.getElementById('pwOverlay').style.display = 'none';
+  }
+})();
+
+// Enter 키로 제출
+document.getElementById('pwInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') checkPassword();
+});
+</script>
+
 <header>
   <div>
     <h1>계좌별 예산 <span>Budget</span></h1>
@@ -3212,6 +3292,28 @@ async function loadFromGithub() {
 // ===== Gist API =====
 async function saveToGist(cfg) {
   const el = document.getElementById('ghStatus');
+
+  // ⚠️ 빈 데이터로 덮어쓰기 방지
+  const hasLocalData = Object.values(DATA.accounts || {}).some(a =>
+    (a.balance > 0) || (a.fixed && a.fixed.length > 0) ||
+    (a.expenses && a.expenses.length > 0) || (a.investment && a.investment.length > 0)
+  );
+  const hasLoans = (DATA.loans || []).length > 0;
+
+  if (!hasLocalData && !hasLoans) {
+    // 로컬이 완전 비어있음. Gist에 뭔가 있을 수 있으니 확인.
+    const confirm1 = confirm(
+      '⚠️ 경고: 현재 화면에 입력된 데이터가 없습니다.\n\n' +
+      'Gist에 저장하면 기존 데이터가 빈 값으로 덮어쓰일 수 있습니다.\n\n' +
+      '정말 빈 상태로 저장할까요?\n\n' +
+      '(보통은 "취소" 선택 후 ↓ 버튼으로 먼저 불러오세요)'
+    );
+    if (!confirm1) {
+      showStatus('저장 취소됨', 'var(--warn)');
+      return;
+    }
+  }
+
   el.classList.add('syncing');
   el.textContent = 'Gist 저장 중...';
   try {
@@ -3293,6 +3395,25 @@ async function loadFromGist(cfg) {
 // ===== Repo API =====
 async function saveToRepo(cfg) {
   const el = document.getElementById('ghStatus');
+
+  // ⚠️ 빈 데이터로 덮어쓰기 방지
+  const hasLocalData = Object.values(DATA.accounts || {}).some(a =>
+    (a.balance > 0) || (a.fixed && a.fixed.length > 0) ||
+    (a.expenses && a.expenses.length > 0) || (a.investment && a.investment.length > 0)
+  );
+  const hasLoans = (DATA.loans || []).length > 0;
+  if (!hasLocalData && !hasLoans) {
+    const confirm1 = confirm(
+      '⚠️ 경고: 현재 화면에 입력된 데이터가 없습니다.\n\n' +
+      'Repo에 저장하면 기존 데이터가 빈 값으로 덮어쓰일 수 있습니다.\n\n' +
+      '정말 빈 상태로 저장할까요?'
+    );
+    if (!confirm1) {
+      showStatus('저장 취소됨', 'var(--warn)');
+      return;
+    }
+  }
+
   el.classList.add('syncing');
   el.textContent = 'Repo 저장 중...';
   try {
