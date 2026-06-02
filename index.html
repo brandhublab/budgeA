@@ -125,6 +125,8 @@
   .tab.active[data-tab-key="aromaticlab"] { border-bottom-color: var(--aromaticlab); }
   /* 합계 탭(composite)은 accent 색으로 표시 */
   .tab.active[data-tab-key^="comp_"] { border-bottom-color: var(--accent); }
+  /* 사용자 추가 사업자(account_*) 탭 */
+  .tab.active[data-tab-key^="account_"] { border-bottom-color: var(--accent); }
   .tab.dragging { opacity: 0.4; }
   .tab.drag-over { background: var(--accent-soft); }
   .tab-edit-input {
@@ -181,6 +183,8 @@
   .summary-card.scentgallery::before { background: var(--scentgallery); }
   .summary-card.personal::before { background: var(--personal); }
   .summary-card.aromaticlab::before { background: var(--aromaticlab); }
+  /* 사용자 추가 사업자 카드 fallback 색상 */
+  .summary-card.custom-account::before { background: var(--accent); }
   .summary-card.fixed::before { background: var(--danger); }
   .summary-card.runway::before { background: var(--ok); }
   .summary-card.income::before { background: var(--ok); }
@@ -1152,9 +1156,21 @@ document.getElementById('pwInput').addEventListener('keydown', (e) => {
     <label>합산할 계좌</label>
     <div id="tabMgrNewAccounts" class="tab-mgr-acc-grid"></div>
 
+    <div class="tab-mgr-divider"></div>
+
+    <label>+ 사업자(계좌) 추가 <span style="color: var(--text-dim); text-transform: none; font-size: 0.68rem;">(필하모닉·센트갤러리처럼 별도 잔고와 고정비를 관리하는 신규 사업자)</span></label>
+    <div class="modal-help">
+      신규 법인·개인사업자를 추가합니다. 추가 후 해당 탭에서 잔고, 월 고정비, 1회성 지출, 광고비, 일회성 수입 등을 별도로 입력하세요. (예: TETRARIX 법인, 새 법인 등)
+    </div>
+    <label>사업자 이름</label>
+    <input type="text" id="tabMgrAccName" placeholder="예: 🏢 테트라릭스 법인">
+    <label>초기 현금 잔고 (원)</label>
+    <input type="number" id="tabMgrAccBalance" placeholder="0" value="0">
+
     <div class="modal-actions">
       <button onclick="closeTabManagerModal()">닫기</button>
-      <button class="primary" onclick="addCompositeTab()">+ 합계 탭 추가</button>
+      <button onclick="addCompositeTab()">+ 합계 탭</button>
+      <button class="primary" onclick="addAccountTab()">+ 사업자 추가</button>
     </div>
   </div>
 </div>
@@ -1261,6 +1277,26 @@ function mergeWithDefaults(data) {
           inventoryLinks: Array.isArray(data.accounts[key].inventoryLinks) ? data.accounts[key].inventoryLinks : []
         };
       }
+    });
+    // 사용자 추가 사업자(account_*) 보존: 기본 4개에 포함되지 않은 모든 키
+    // (기존 데이터에 account_* 키가 없으면 이 블록은 아무것도 하지 않음 → 0% 영향)
+    Object.keys(data.accounts).forEach(key => {
+      if (['philharmonic', 'scentgallery', 'personal', 'aromaticlab'].includes(key)) return;
+      const src = data.accounts[key];
+      if (!src || typeof src !== 'object') return;
+      merged.accounts[key] = {
+        balance: src.balance ?? 0,
+        fixed: Array.isArray(src.fixed) ? src.fixed.map(f => ({ cost: true, ...f })) : [],
+        expenses: Array.isArray(src.expenses) ? src.expenses : [],
+        investment: Array.isArray(src.investment) ? src.investment : [],
+        ads: Array.isArray(src.ads) ? src.ads : [],
+        income: Array.isArray(src.income) ? src.income : [],
+        forecast: src.forecast || {},
+        pnl: src.pnl || {},
+        inventoryStart: src.inventoryStart ?? 0,
+        inventoryAdjustments: Array.isArray(src.inventoryAdjustments) ? src.inventoryAdjustments : [],
+        inventoryLinks: Array.isArray(src.inventoryLinks) ? src.inventoryLinks : []
+      };
     });
   }
   if (data.baseDate) merged.baseDate = data.baseDate;
@@ -1376,7 +1412,7 @@ function formatKDate(d) {
 function computeRunway() {
   const monthStr = getCurrentMonthKey();
   let totalBalance = 0, totalFixed = 0, totalIncome = 0;
-  ['philharmonic', 'scentgallery', 'personal', 'aromaticlab'].forEach(key => {
+  getAccountKeys().forEach(key => {
     const acc = DATA.accounts[key];
     if (!acc) return;
     totalBalance += acc.balance || 0;
@@ -1490,13 +1526,22 @@ function downloadJSON() {
     const blob = new Blob([content], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
+    // 파일명: budget_YYYY-MM-DD_HH-MM_v{버전수}.json
+    // 날짜+시각으로 같은 날 여러 번 받아도 구분되고, v{N}은 백업 시점의 누적 버전 개수
+    const now = new Date();
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mi = String(now.getMinutes()).padStart(2, '0');
+    const verCount = (DATA.versions || []).length;
     a.href = url;
-    a.download = `budget_${getCurrentMonthKey()}_${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `budget_${yyyy}-${mm}-${dd}_${hh}-${mi}_v${verCount}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showStatus('✓ JSON 백업 다운로드');
+    showStatus(`✓ JSON 백업: ${a.download}`);
   } catch (e) {
     alert('다운로드 실패: ' + e.message);
   }
@@ -1544,6 +1589,10 @@ function openTabManagerModal() {
   ensureComposites();
   document.getElementById('tabManagerModal').classList.add('active');
   document.getElementById('tabMgrNewName').value = '';
+  const accNameEl = document.getElementById('tabMgrAccName');
+  const accBalEl = document.getElementById('tabMgrAccBalance');
+  if (accNameEl) accNameEl.value = '';
+  if (accBalEl) accBalEl.value = '0';
   renderTabManagerList();
   renderTabManagerNewAccounts();
 }
@@ -1566,26 +1615,37 @@ function renderTabManagerList() {
     const isFirst = idx === 0;
     const isLast = idx === order.length - 1;
     const composite = isCompositeTab(key);
-    const badge = composite
-      ? '<span class="tab-mgr-badge composite">합계</span>'
-      : '<span class="tab-mgr-badge system">기본</span>';
-    let compositeInfo = '';
+    const customAcc = isCustomAccount(key);
+    let badge;
+    if (composite) badge = '<span class="tab-mgr-badge composite">합계</span>';
+    else if (customAcc) badge = '<span class="tab-mgr-badge composite">사업자</span>';
+    else badge = '<span class="tab-mgr-badge system">기본</span>';
+    let extraInfo = '';
     if (composite) {
       const c = DATA.composites.find(x => x.key === key);
       if (c && c.accounts) {
         const names = c.accounts.map(k => DATA.tabNames[k] || k).join(' + ');
-        compositeInfo = `<div style="font-size: 0.66rem; color: var(--text-dim); margin-top: 2px;">${names}</div>`;
+        extraInfo = `<div style="font-size: 0.66rem; color: var(--text-dim); margin-top: 2px;">${names}</div>`;
       }
+    } else if (customAcc) {
+      const acc = DATA.accounts[key];
+      const fixedSum = (acc.fixed || []).reduce((s, f) => s + (f.amount || 0), 0);
+      extraInfo = `<div style="font-size: 0.66rem; color: var(--text-dim); margin-top: 2px;">잔고 ${fmt(acc.balance || 0)} · 고정비 ${fmt(fixedSum)}</div>`;
     }
-    const delBtn = composite
-      ? `<button class="tab-mgr-btn danger" onclick="deleteCompositeTab('${key}')" title="합계 탭 삭제">🗑</button>`
-      : `<button class="tab-mgr-btn" disabled title="기본 탭은 삭제 불가">🔒</button>`;
+    let delBtn;
+    if (composite) {
+      delBtn = `<button class="tab-mgr-btn danger" onclick="deleteCompositeTab('${key}')" title="합계 탭 삭제">🗑</button>`;
+    } else if (customAcc) {
+      delBtn = `<button class="tab-mgr-btn danger" onclick="deleteAccountTab('${key}')" title="사업자 탭 삭제 (모든 데이터 사라짐)">🗑</button>`;
+    } else {
+      delBtn = `<button class="tab-mgr-btn" disabled title="기본 탭은 삭제 불가">🔒</button>`;
+    }
     return `
       <div class="tab-mgr-item">
         <span class="tab-mgr-handle">⋮⋮</span>
         <div style="flex: 1; min-width: 0;">
           <div class="tab-mgr-name">${name} ${badge}</div>
-          ${compositeInfo}
+          ${extraInfo}
         </div>
         <button class="tab-mgr-btn" onclick="moveTabUp('${key}')" ${isFirst ? 'disabled' : ''} title="위로">↑</button>
         <button class="tab-mgr-btn" onclick="moveTabDown('${key}')" ${isLast ? 'disabled' : ''} title="아래로">↓</button>
@@ -1599,7 +1659,9 @@ function renderTabManagerList() {
 function renderTabManagerNewAccounts() {
   const box = document.getElementById('tabMgrNewAccounts');
   if (!box) return;
-  box.innerHTML = BASE_ACCOUNT_KEYS.map(k => {
+  // 기본 4계좌 + 사용자 추가 사업자 모두 합계 후보로 노출
+  const keys = getAccountKeys();
+  box.innerHTML = keys.map(k => {
     const name = DATA.tabNames[k] || k;
     return `<label><input type="checkbox" data-acc="${k}"> ${name}</label>`;
   }).join('');
@@ -1697,6 +1759,84 @@ document.addEventListener('click', (e) => {
   const overlay = document.getElementById('tabManagerModal');
   if (overlay && e.target === overlay) closeTabManagerModal();
 });
+
+// ==================== 사업자(계좌) 추가/삭제 ====================
+function addAccountTab() {
+  const nameInput = document.getElementById('tabMgrAccName');
+  const balanceInput = document.getElementById('tabMgrAccBalance');
+  const rawName = (nameInput.value || '').trim();
+  if (!rawName) {
+    alert('사업자 이름을 입력해주세요.');
+    nameInput.focus();
+    return;
+  }
+  const balance = parseFloat(balanceInput.value) || 0;
+  // account_<timestamp_base36>_<rand> 형식으로 충돌 없는 키 생성
+  const newKey = 'account_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 5);
+  DATA.accounts[newKey] = {
+    balance: balance,
+    fixed: [],
+    expenses: [],
+    investment: [],
+    ads: [],
+    income: [],
+    forecast: {},
+    pnl: {},
+    inventoryStart: 0,
+    inventoryAdjustments: [],
+    inventoryLinks: []
+  };
+  DATA.tabNames[newKey] = rawName;
+  // tabOrder에 삽입 위치: 마지막 기본 계좌 다음(또는 합계 탭들 앞)
+  // 가장 단순하게는 대출 탭 바로 앞에 삽입
+  const loansIdx = DATA.tabOrder.indexOf('loans');
+  if (loansIdx >= 0) {
+    DATA.tabOrder.splice(loansIdx, 0, newKey);
+  } else {
+    DATA.tabOrder.push(newKey);
+  }
+  autoSave();
+  renderAll();
+  switchTab(newKey);
+  renderTabManagerList();
+  nameInput.value = '';
+  balanceInput.value = '0';
+  showStatus('✓ 사업자 추가됨: ' + rawName);
+}
+
+function deleteAccountTab(key) {
+  if (!isCustomAccount(key)) {
+    alert('기본 사업자는 삭제할 수 없습니다.');
+    return;
+  }
+  const name = DATA.tabNames[key] || key;
+  const acc = DATA.accounts[key];
+  const itemCount = (acc.fixed || []).length + (acc.expenses || []).length
+    + (acc.investment || []).length + (acc.ads || []).length + (acc.income || []).length;
+  const msg = `"${name}" 사업자를 정말 삭제할까요?\n\n`
+    + `⚠ 이 사업자에 입력된 모든 데이터가 영구 삭제됩니다:\n`
+    + `  - 현금 잔고 ${fmt(acc.balance || 0)}\n`
+    + `  - 등록 항목 ${itemCount}건 (고정비/지출/투자/광고/수입)\n`
+    + `  - 매출·원가 입력 내역\n\n`
+    + `※ 합계 탭에 이 계좌가 포함돼 있으면 해당 합계 탭에서도 자동으로 빠집니다.\n\n`
+    + `복구하려면 사전에 📥 백업으로 JSON을 받아두세요.\n\n`
+    + `계속할까요?`;
+  if (!confirm(msg)) return;
+  delete DATA.accounts[key];
+  delete DATA.tabNames[key];
+  DATA.tabOrder = DATA.tabOrder.filter(k => k !== key);
+  // 합계 탭들에서도 이 계좌 참조를 제거
+  (DATA.composites || []).forEach(c => {
+    if (Array.isArray(c.accounts)) {
+      c.accounts = c.accounts.filter(k => k !== key);
+    }
+  });
+  // 빈 composite은 그대로 두되 사용자가 인지할 수 있도록 그냥 놔둠
+  autoSave();
+  renderAll();
+  renderTabManagerList();
+  showStatus('✓ 사업자 삭제됨: ' + name);
+}
 
 // 재고자산 계산: 초기재고 + 총투자 - 총원가(COGS) + 수동조정
 function calcInventory(accountKey) {
@@ -1940,8 +2080,8 @@ function renderTabContents() {
   allDiv.dataset.tabContent = 'all';
   container.appendChild(allDiv);
 
-  // 각 계좌 탭
-  ['philharmonic', 'scentgallery', 'personal', 'aromaticlab'].forEach(key => {
+  // 모든 계좌 탭(기본 4개 + 사용자 추가 사업자)
+  getAccountKeys().forEach(key => {
     const div = document.createElement('div');
     div.className = 'tab-content';
     div.dataset.tabContent = key;
@@ -1982,7 +2122,7 @@ function ensureComposites() {
 function ensureIncomeDates() {
   const baseMonth = (DATA.baseDate || '2026-04-17').slice(0, 7);
   const defaultDate = `${baseMonth}-15`;
-  ['philharmonic', 'scentgallery', 'personal', 'aromaticlab'].forEach(key => {
+  getAccountKeys().forEach(key => {
     const acc = DATA.accounts[key];
     if (!acc || !Array.isArray(acc.income)) return;
     acc.income.forEach(item => {
@@ -1993,6 +2133,17 @@ function ensureIncomeDates() {
 
 // PnL 월 선택 상태 (계좌별) — 화면 상태일 뿐 DATA에는 저장하지 않음
 const pnlSelectedMonth = {};
+
+// 모든 계좌 키(기본 4개 + 사용자가 추가한 사업자) — 데이터에서 직접 가져옴
+function getAccountKeys() {
+  return Object.keys(DATA.accounts || {});
+}
+function isBaseAccount(key) {
+  return ['philharmonic', 'scentgallery', 'personal', 'aromaticlab'].includes(key);
+}
+function isCustomAccount(key) {
+  return typeof key === 'string' && key.startsWith('account_') && DATA.accounts && DATA.accounts[key];
+}
 
 // ==================== 계좌 탭 렌더링 ====================
 function renderAccountTab(accountKey) {
@@ -2055,9 +2206,26 @@ function renderAccountTab(accountKey) {
     .reduce((s, i) => s + (i.amount || 0), 0);
   const pnlBlockProfit = (pnlBlock.revenue || 0) - (pnlBlock.cogs || 0) - pnlAdsSum - fixedSum - pnlExpSum;
 
+  // 계좌별 런웨이: 현금 잔고 / (월 고정비 - 월 수입)
+  const accNetBurn = fixedSum - incomeSum;
+  let accRunwayText, accRunwayCls, accRunwayEnd;
+  if (accNetBurn <= 0) {
+    accRunwayText = '∞';
+    accRunwayCls = 'ok';
+    accRunwayEnd = '월 순지출 없음 · 소진 시점 없음';
+  } else {
+    const accMonths = acc.balance / accNetBurn;
+    accRunwayCls = accMonths < 3 ? 'danger' : accMonths < 6 ? 'warn' : 'ok';
+    accRunwayText = `${accMonths.toFixed(1)}개월`;
+    const endDate = addMonths(new Date(), accMonths);
+    const dday = Math.round((endDate - new Date()) / 86400000);
+    const weeks = Math.round(dday / 7);
+    accRunwayEnd = `🗓 ${formatKDate(endDate)} 소진 예상 · 약 ${weeks}주 · D-${dday}`;
+  }
+
   container.innerHTML = `
     <div class="summary-grid">
-      <div class="summary-card ${accountKey}">
+      <div class="summary-card ${accountKey} ${isBaseAccount(accountKey) ? '' : 'custom-account'}">
         <div class="sc-label">${name} · 현금 잔고</div>
         <div class="sc-value accent">${fmt(acc.balance)}</div>
       </div>
@@ -2088,6 +2256,12 @@ function renderAccountTab(accountKey) {
         <div class="sc-label">월 일회성 수입</div>
         <div class="sc-value ok">${fmt(incomeSum)}</div>
         <div class="sc-sub">${monthStr} 입력분</div>
+      </div>
+      <div class="summary-card runway">
+        <div class="sc-label">⏳ 계좌별 런웨이</div>
+        <div class="sc-value ${accRunwayCls}">${accRunwayText}</div>
+        <div class="sc-sub">${accRunwayEnd}</div>
+        <div class="sc-sub" style="margin-top: 2px;">현금 ${fmt(acc.balance)} / 월 순지출 ${fmt(Math.max(accNetBurn, 0))}</div>
       </div>
       <div class="summary-card runway">
         <div class="sc-label">💰 잔여 예산 (순자산 기준)</div>
@@ -3307,7 +3481,7 @@ function attachLoansListeners() {
 // ==================== 전체 탭 ====================
 function renderAllTab(containerKey, accountKeys, displayName) {
   containerKey = containerKey || 'all';
-  const KEYS = (accountKeys && accountKeys.length) ? accountKeys : ['philharmonic', 'scentgallery', 'personal', 'aromaticlab'];
+  const KEYS = (accountKeys && accountKeys.length) ? accountKeys : getAccountKeys();
   displayName = displayName || '전체';
   const container = document.querySelector(`[data-tab-content="${containerKey}"]`);
   if (!container) return;
@@ -3427,7 +3601,7 @@ function renderAllTab(containerKey, accountKeys, displayName) {
         const net = acc.balance + inv;
         const name = DATA.tabNames[key] || key;
         return `
-          <div class="summary-card ${key}">
+          <div class="summary-card ${key} ${isBaseAccount(key) ? '' : 'custom-account'}">
             <div class="sc-label">${name}</div>
             <div class="sc-value">${fmt(acc.balance)}</div>
             <div class="sc-sub">재고 ${fmt(inv)} · 순자산 <strong>${fmt(net)}</strong></div>
@@ -3549,7 +3723,7 @@ function renderAllTab(containerKey, accountKeys, displayName) {
 
 function renderAllForecastTable(accountKeys) {
   const months = getForecastMonths();
-  const ALL_KEYS = (accountKeys && accountKeys.length) ? accountKeys : ['philharmonic', 'scentgallery', 'personal', 'aromaticlab'];
+  const ALL_KEYS = (accountKeys && accountKeys.length) ? accountKeys : getAccountKeys();
   const allFixedSum = ALL_KEYS.reduce((s, key) => s + DATA.accounts[key].fixed.reduce((ss, f) => ss + (f.amount || 0), 0), 0);
 
   let html = `
@@ -3684,7 +3858,7 @@ async function saveVersion() {
 
   const active = getActiveTab();
   renderAllTab();
-  ['philharmonic', 'scentgallery', 'personal', 'aromaticlab'].forEach(k => renderAccountTab(k));
+  getAccountKeys().forEach(k => renderAccountTab(k));
   (DATA.composites || []).forEach(c => renderCompositeTab(c.key));
   renderLoansTab();
   renderTopBar();
@@ -3749,7 +3923,7 @@ function deleteVersion(id) {
     autoSave();
     const active = getActiveTab();
     renderAllTab();
-    ['philharmonic', 'scentgallery', 'personal', 'aromaticlab'].forEach(k => renderAccountTab(k));
+    getAccountKeys().forEach(k => renderAccountTab(k));
     (DATA.composites || []).forEach(c => renderCompositeTab(c.key));
     renderLoansTab();
     renderTopBar();
@@ -4124,7 +4298,7 @@ function renderAll() {
   renderTabs();
   renderTabContents();
   renderAllTab();
-  ['philharmonic', 'scentgallery', 'personal', 'aromaticlab'].forEach(k => renderAccountTab(k));
+  getAccountKeys().forEach(k => renderAccountTab(k));
   (DATA.composites || []).forEach(c => renderCompositeTab(c.key));
   renderLoansTab();
   renderTopBar();
