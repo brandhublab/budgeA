@@ -305,6 +305,40 @@
     gap: 8px;
   }
   .il-title { font-size: 0.78rem; font-weight: 700; }
+  .il-sort {
+    display: flex; gap: 3px; flex-wrap: wrap;
+    margin-left: auto; margin-right: 8px;
+  }
+  .il-sort-label {
+    font-size: 0.62rem;
+    color: var(--text-dim);
+    align-self: center;
+    margin-right: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .il-sort-btn {
+    padding: 2px 7px;
+    font-size: 0.66rem;
+    font-weight: 600;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    cursor: pointer;
+    font-family: inherit;
+    color: var(--text-mid);
+    line-height: 1.4;
+  }
+  .il-sort-btn:hover { background: var(--line); }
+  .il-sort-btn.active {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+  .il-sort-btn.il-sort-reset {
+    color: var(--text-dim);
+    padding: 2px 6px;
+  }
+  .il-sort-btn.il-sort-reset:hover { color: var(--text); background: var(--surface-2); }
   .il-total {
     font-size: 0.85rem;
     font-weight: 700;
@@ -2134,6 +2168,30 @@ function ensureIncomeDates() {
 // PnL 월 선택 상태 (계좌별) — 화면 상태일 뿐 DATA에는 저장하지 않음
 const pnlSelectedMonth = {};
 
+// 항목 리스트 정렬 상태: { 'accountKey:listType': { by: 'name'|'amount'|'vat'|'date', dir: 'asc'|'desc' } }
+// 사용자가 어떤 기준으로 정렬했는지 기억. 표시 전용 — 실제 DATA 배열은 입력 순서 그대로 유지.
+const itemSortState = {};
+
+function sortItemList(accountKey, listType, by) {
+  const stateKey = `${accountKey}:${listType}`;
+  const cur = itemSortState[stateKey];
+  // 같은 기준 → 방향 토글, 다른 기준 → desc 시작(금액/부가세/날짜는 큰 게 위로, 이름은 asc)
+  let nextDir;
+  if (cur && cur.by === by) {
+    nextDir = cur.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    nextDir = (by === 'name') ? 'asc' : 'desc';
+  }
+  itemSortState[stateKey] = { by, dir: nextDir };
+  renderAccountTab(accountKey);
+}
+
+function clearItemSort(accountKey, listType) {
+  const stateKey = `${accountKey}:${listType}`;
+  delete itemSortState[stateKey];
+  renderAccountTab(accountKey);
+}
+
 // 모든 계좌 키(기본 4개 + 사용자가 추가한 사업자) — 데이터에서 직접 가져옴
 function getAccountKeys() {
   return Object.keys(DATA.accounts || {});
@@ -2486,13 +2544,30 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
   const items = DATA.accounts[accountKey][listType];
   const total = items.reduce((s, i) => s + (i.amount || 0), 0);
 
+  const sortKey = `${accountKey}:${listType}`;
+  const sortState = itemSortState[sortKey];
+
   let rowsHtml = '';
   if (items.length === 0) {
     rowsHtml = `<div class="item-empty">${singular}이 없습니다. 아래 + 버튼으로 추가하세요.</div>`;
   } else {
-    // 정렬: 날짜 있는 항목은 최신순
+    // 표시 전용 정렬 — 실제 DATA 배열은 입력 순서 유지(편집 안전)
+    // _idx로 원본 배열의 인덱스를 보존해서 모든 input/checkbox/delete가 올바른 항목을 가리킴
     const indexed = items.map((item, idx) => ({ ...item, _idx: idx }));
-    if (hasDate) {
+    if (sortState) {
+      const m = sortState.dir === 'desc' ? -1 : 1;
+      indexed.sort((a, b) => {
+        let va, vb;
+        if (sortState.by === 'amount') { va = a.amount || 0; vb = b.amount || 0; }
+        else if (sortState.by === 'vat') { va = a.vat || 0; vb = b.vat || 0; }
+        else if (sortState.by === 'date') { va = a.date || ''; vb = b.date || ''; }
+        else { va = (a.name || '').toLowerCase(); vb = (b.name || '').toLowerCase(); }
+        if (va < vb) return -1 * m;
+        if (va > vb) return 1 * m;
+        return 0;
+      });
+    } else if (hasDate) {
+      // 기본 정렬: 날짜 있는 리스트는 최신순
       indexed.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
     }
     indexed.forEach(item => {
@@ -2525,10 +2600,28 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
   const totalClass = isIncome ? 'income' : (listType === 'expenses' || listType === 'ads' || listType === 'investment' ? 'expense' : '');
   const sign = isIncome ? '+' : (listType === 'fixed' ? '' : '-');
 
+  // 정렬 버튼 (이름·금액·부가세, 날짜 항목엔 날짜 추가). 표시 전용이라 원본 데이터는 보존.
+  const arrow = (by) => {
+    if (!sortState || sortState.by !== by) return '';
+    return sortState.dir === 'asc' ? ' ↑' : ' ↓';
+  };
+  const isActive = (by) => sortState && sortState.by === by ? 'active' : '';
+  const sortButtons = `
+    <div class="il-sort">
+      <span class="il-sort-label">정렬</span>
+      <button class="il-sort-btn ${isActive('name')}" onclick="sortItemList('${accountKey}', '${listType}', 'name')">이름${arrow('name')}</button>
+      <button class="il-sort-btn ${isActive('amount')}" onclick="sortItemList('${accountKey}', '${listType}', 'amount')">금액${arrow('amount')}</button>
+      <button class="il-sort-btn ${isActive('vat')}" onclick="sortItemList('${accountKey}', '${listType}', 'vat')">부가세${arrow('vat')}</button>
+      ${hasDate ? `<button class="il-sort-btn ${isActive('date')}" onclick="sortItemList('${accountKey}', '${listType}', 'date')">날짜${arrow('date')}</button>` : ''}
+      ${sortState ? `<button class="il-sort-btn il-sort-reset" onclick="clearItemSort('${accountKey}', '${listType}')" title="입력 순서로 되돌리기">↺</button>` : ''}
+    </div>
+  `;
+
   return `
     <div class="item-list">
       <div class="il-header">
         <div class="il-title">${title}</div>
+        ${sortButtons}
         <div class="il-total ${totalClass}">${sign}${fmt(total)}</div>
       </div>
       <div class="il-body">${rowsHtml}</div>
