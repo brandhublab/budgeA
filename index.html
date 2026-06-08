@@ -123,6 +123,9 @@
   .tab.active[data-tab-key="scentgallery"] { border-bottom-color: var(--scentgallery); }
   .tab.active[data-tab-key="personal"] { border-bottom-color: var(--personal); }
   .tab.active[data-tab-key="aromaticlab"] { border-bottom-color: var(--aromaticlab); }
+  /* 시스템 탭 색상 */
+  .tab.active[data-tab-key="investfund"] { border-bottom-color: var(--navy); }
+  .tab.active[data-tab-key="taxes"] { border-bottom-color: var(--warn); }
   /* 합계 탭(composite)은 accent 색으로 표시 */
   .tab.active[data-tab-key^="comp_"] { border-bottom-color: var(--accent); }
   /* 사용자 추가 사업자(account_*) 탭 */
@@ -339,6 +342,57 @@
     padding: 2px 6px;
   }
   .il-sort-btn.il-sort-reset:hover { color: var(--text); background: var(--surface-2); }
+
+  /* 세금 행: 납부완료 시 회색 처리 */
+  .item-row.tax-paid {
+    opacity: 0.55;
+    background: var(--surface-2);
+  }
+  .item-row.tax-paid input { color: var(--text-dim); }
+
+  /* 클릭 가능한 컬럼 헤더 (테이블처럼) */
+  .il-cols {
+    display: grid;
+    grid-template-columns: 2fr 1fr 0.9fr 46px 36px;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--line);
+    font-size: 0.68rem;
+    font-weight: 700;
+    color: var(--text-mid);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .il-cols.expense-row {
+    grid-template-columns: 110px 1.8fr 1fr 0.9fr 46px 36px;
+  }
+  .il-col {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    cursor: pointer;
+    user-select: none;
+    padding: 2px 0;
+    color: var(--text-mid);
+    transition: color 0.12s;
+  }
+  .il-col:hover { color: var(--accent); }
+  .il-col.active { color: var(--accent); }
+  .il-col-arrow {
+    font-size: 0.78rem;
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .il-col-dim {
+    color: var(--text-dim);
+    cursor: default;
+  }
+  .il-col-dim:hover { color: var(--text-dim); }
+  @media (max-width: 680px) {
+    .il-cols { display: none; } /* 모바일에선 il-sort 버튼만 사용 */
+  }
+
   .il-total {
     font-size: 0.85rem;
     font-weight: 700;
@@ -1211,14 +1265,16 @@ document.getElementById('pwInput').addEventListener('keydown', (e) => {
 
 <script>
 // ==================== 기본 데이터 ====================
-const DEFAULT_ACCOUNT_ORDER = ['all', 'philharmonic', 'scentgallery', 'personal', 'aromaticlab', 'loans'];
+const DEFAULT_ACCOUNT_ORDER = ['all', 'philharmonic', 'scentgallery', 'personal', 'aromaticlab', 'loans', 'investfund', 'taxes'];
 const DEFAULT_NAMES = {
   all: '📊 전체',
   philharmonic: '필하모닉',
   scentgallery: '센트갤러리',
   personal: '개인',
   aromaticlab: '아로마틱랩',
-  loans: '🏦 대출'
+  loans: '🏦 대출',
+  investfund: '💎 제품 투자 자금',
+  taxes: '🧾 세금'
 };
 
 const DEFAULT_FIXED = {
@@ -1271,6 +1327,8 @@ function defaultData() {
   return {
     accounts,
     loans: DEFAULT_LOANS.map(l => ({ ...l, repayments: [...(l.repayments || [])] })),
+    investFund: { balance: 0, transactions: [] },
+    taxes: { vat: [], income: [], corporate: [] },
     baseDate: '2026-04-17',
     tabOrder: [...DEFAULT_ACCOUNT_ORDER],
     tabNames: { ...DEFAULT_NAMES },
@@ -1342,12 +1400,43 @@ function mergeWithDefaults(data) {
   if (Array.isArray(data.loans)) {
     merged.loans = data.loans.map(l => ({ repayments: [], ...l }));
   }
-  // tabOrder에 loans 없으면 추가
+  // 제품 투자 자금 보존 (기존 데이터에 없으면 영향 없음)
+  if (data.investFund && typeof data.investFund === 'object') {
+    merged.investFund = {
+      balance: data.investFund.balance ?? 0,
+      transactions: Array.isArray(data.investFund.transactions) ? data.investFund.transactions : []
+    };
+  }
+  // 세금 기록 보존
+  if (data.taxes && typeof data.taxes === 'object') {
+    merged.taxes = {
+      vat: Array.isArray(data.taxes.vat) ? data.taxes.vat : [],
+      income: Array.isArray(data.taxes.income) ? data.taxes.income : [],
+      corporate: Array.isArray(data.taxes.corporate) ? data.taxes.corporate : []
+    };
+  }
+  // tabOrder에 신규 시스템 탭 자동 추가 (기존 사용자 호환)
   if (!merged.tabOrder.includes('loans')) {
     merged.tabOrder.push('loans');
   }
+  if (!merged.tabOrder.includes('investfund')) {
+    // 대출 바로 다음에 삽입
+    const loansIdx = merged.tabOrder.indexOf('loans');
+    merged.tabOrder.splice(loansIdx + 1, 0, 'investfund');
+  }
+  if (!merged.tabOrder.includes('taxes')) {
+    // investfund 다음에 삽입
+    const invIdx = merged.tabOrder.indexOf('investfund');
+    merged.tabOrder.splice(invIdx + 1, 0, 'taxes');
+  }
   if (!merged.tabNames.loans) {
     merged.tabNames.loans = '🏦 대출';
+  }
+  if (!merged.tabNames.investfund) {
+    merged.tabNames.investfund = '💎 제품 투자 자금';
+  }
+  if (!merged.tabNames.taxes) {
+    merged.tabNames.taxes = '🧾 세금';
   }
   return merged;
 }
@@ -1613,7 +1702,7 @@ function uploadJSON(event) {
 }
 
 // ==================== 탭 관리 (추가/삭제/순서) ====================
-const SYSTEM_TAB_KEYS = ['all', 'philharmonic', 'scentgallery', 'personal', 'aromaticlab', 'loans'];
+const SYSTEM_TAB_KEYS = ['all', 'philharmonic', 'scentgallery', 'personal', 'aromaticlab', 'loans', 'investfund', 'taxes'];
 const BASE_ACCOUNT_KEYS = ['philharmonic', 'scentgallery', 'personal', 'aromaticlab'];
 
 function isSystemTab(key) { return SYSTEM_TAB_KEYS.includes(key); }
@@ -2135,6 +2224,18 @@ function renderTabContents() {
   loansDiv.className = 'tab-content';
   loansDiv.dataset.tabContent = 'loans';
   container.appendChild(loansDiv);
+
+  // 제품 투자 자금 탭
+  const fundDiv = document.createElement('div');
+  fundDiv.className = 'tab-content';
+  fundDiv.dataset.tabContent = 'investfund';
+  container.appendChild(fundDiv);
+
+  // 세금 탭
+  const taxDiv = document.createElement('div');
+  taxDiv.className = 'tab-content';
+  taxDiv.dataset.tabContent = 'taxes';
+  container.appendChild(taxDiv);
 }
 
 // 합계 탭(composite) 렌더링: renderAllTab을 그대로 재사용
@@ -2250,8 +2351,8 @@ function renderAccountTab(accountKey) {
   const remaining = netAssets - allExpSum - allAdsSum;
 
   const pnl = acc.pnl[monthStr] || { revenue: 0, cogs: 0 };
-  // 순익 = 매출 - 원가 - 광고비 - 고정비 - 1회성 (투자는 비용 아님)
-  const pnlProfit = (pnl.revenue || 0) - (pnl.cogs || 0) - monthAdsSum - fixedSum - monthExpSum;
+  // 순익 = 매출 + 일회성 수입 − 원가 − 광고비 − 고정비 − 1회성 지출 (제품 투자는 비용 아님)
+  const pnlProfit = (pnl.revenue || 0) + incomeSum - (pnl.cogs || 0) - monthAdsSum - fixedSum - monthExpSum;
 
   // PnL 블록은 사용자가 드롭다운에서 선택한 월을 따로 사용
   const pnlMonth = pnlSelectedMonth[accountKey] || monthStr;
@@ -2262,7 +2363,10 @@ function renderAccountTab(accountKey) {
     .reduce((s, e) => s + (e.amount || 0), 0);
   const pnlInvSum = (acc.investment || []).filter(i => (i.date || '').startsWith(pnlMonth))
     .reduce((s, i) => s + (i.amount || 0), 0);
-  const pnlBlockProfit = (pnlBlock.revenue || 0) - (pnlBlock.cogs || 0) - pnlAdsSum - fixedSum - pnlExpSum;
+  const pnlIncomeSum = (acc.income || []).filter(i => (i.date || '').startsWith(pnlMonth))
+    .reduce((s, i) => s + (i.amount || 0), 0);
+  // 순익 = 매출 + 일회성 수입 − 원가 − 광고비 − 고정비 − 1회성 지출 (제품 투자는 비용 아님)
+  const pnlBlockProfit = (pnlBlock.revenue || 0) + pnlIncomeSum - (pnlBlock.cogs || 0) - pnlAdsSum - fixedSum - pnlExpSum;
 
   // 계좌별 런웨이: 현금 잔고 / (월 고정비 - 월 수입)
   const accNetBurn = fixedSum - incomeSum;
@@ -2300,7 +2404,7 @@ function renderAccountTab(accountKey) {
       <div class="summary-card profit">
         <div class="sc-label">이번 달 순익</div>
         <div class="sc-value ${pnlProfit >= 0 ? 'ok' : 'danger'}">${fmt(pnlProfit)}</div>
-        <div class="sc-sub">매출 − 원가 − 광고 − 고정 − 1회성</div>
+        <div class="sc-sub">매출 + 수입 − 원가 − 광고 − 고정 − 1회성</div>
       </div>
     </div>
 
@@ -2405,6 +2509,7 @@ function renderAccountTab(accountKey) {
       </div>
       <div class="pnl-breakdown">
         <div class="pnl-bd-row"><span>매출</span><span>+${fmt(pnlBlock.revenue || 0)}</span></div>
+        <div class="pnl-bd-row"><span>일회성 수입 (해당월)</span><span style="color:var(--ok);">+${fmt(pnlIncomeSum)}</span></div>
         <div class="pnl-bd-row"><span>원가 (COGS)</span><span>-${fmt(pnlBlock.cogs || 0)}</span></div>
         <div class="pnl-bd-row"><span>광고비 (해당월)</span><span>-${fmt(pnlAdsSum)}</span></div>
         <div class="pnl-bd-row"><span>월 고정비</span><span>-${fmt(fixedSum)}</span></div>
@@ -2605,6 +2710,10 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
     if (!sortState || sortState.by !== by) return '';
     return sortState.dir === 'asc' ? ' ↑' : ' ↓';
   };
+  const colArrow = (by) => {
+    if (!sortState || sortState.by !== by) return '';
+    return `<span class="il-col-arrow">${sortState.dir === 'asc' ? '▲' : '▼'}</span>`;
+  };
   const isActive = (by) => sortState && sortState.by === by ? 'active' : '';
   const sortButtons = `
     <div class="il-sort">
@@ -2617,6 +2726,18 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
     </div>
   `;
 
+  // 컬럼 헤더 (테이블처럼 클릭해서 정렬) — item-row와 grid 정렬 일치
+  const colsHtml = items.length === 0 ? '' : `
+    <div class="il-cols ${hasDate ? 'expense-row' : ''}">
+      ${hasDate ? `<span class="il-col ${isActive('date')}" onclick="sortItemList('${accountKey}', '${listType}', 'date')">날짜${colArrow('date')}</span>` : ''}
+      <span class="il-col ${isActive('name')}" onclick="sortItemList('${accountKey}', '${listType}', 'name')">명칭${colArrow('name')}</span>
+      <span class="il-col ${isActive('amount')}" onclick="sortItemList('${accountKey}', '${listType}', 'amount')">금액${colArrow('amount')}</span>
+      <span class="il-col ${isActive('vat')}" onclick="sortItemList('${accountKey}', '${listType}', 'vat')">부가세${colArrow('vat')}</span>
+      <span class="il-col il-col-dim">${isIncome ? '' : '비용'}</span>
+      <span class="il-col il-col-dim"></span>
+    </div>
+  `;
+
   return `
     <div class="item-list">
       <div class="il-header">
@@ -2624,6 +2745,7 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
         ${sortButtons}
         <div class="il-total ${totalClass}">${sign}${fmt(total)}</div>
       </div>
+      ${colsHtml}
       <div class="il-body">${rowsHtml}</div>
       <div class="il-footer">
         <button class="ok-btn" data-add-account="${accountKey}" data-add-list="${listType}" data-has-date="${hasDate ? '1' : '0'}">+ ${singular} 추가</button>
@@ -3571,6 +3693,372 @@ function attachLoansListeners() {
   });
 }
 
+// ==================== 제품 투자 자금 탭 ====================
+function renderInvestFundTab() {
+  const container = document.querySelector('[data-tab-content="investfund"]');
+  if (!container) return;
+
+  if (!DATA.investFund || typeof DATA.investFund !== 'object') {
+    DATA.investFund = { balance: 0, transactions: [] };
+  }
+  if (!Array.isArray(DATA.investFund.transactions)) DATA.investFund.transactions = [];
+
+  const txs = DATA.investFund.transactions;
+  // 안전 마이그레이션: 옛 데이터에 type이 없으면 amount 부호로 추정
+  txs.forEach(t => {
+    if (t.type !== 'in' && t.type !== 'out') {
+      t.type = (t.amount || 0) >= 0 ? 'in' : 'out';
+      t.amount = Math.abs(t.amount || 0);
+    }
+  });
+
+  const totalIn = txs.filter(t => t.type === 'in').reduce((s, t) => s + (t.amount || 0), 0);
+  const totalOut = txs.filter(t => t.type === 'out').reduce((s, t) => s + (t.amount || 0), 0);
+  const balance = totalIn - totalOut;
+
+  // 날짜 최신순으로 표시
+  const sortedTxs = txs.map((t, i) => ({ ...t, _idx: i }))
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  let rowsHtml = '';
+  if (sortedTxs.length === 0) {
+    rowsHtml = '<div class="item-empty">거래가 없습니다. 아래 + 버튼으로 추가하세요.</div>';
+  } else {
+    sortedTxs.forEach(t => {
+      const idx = t._idx;
+      const isIn = t.type === 'in';
+      rowsHtml += `
+        <div class="item-row expense-row">
+          <input type="date" class="inp-date" value="${t.date || ''}"
+            data-fund-idx="${idx}" data-fund-field="date">
+          <select data-fund-idx="${idx}" data-fund-field="type"
+            style="background:var(--bg);border:1px solid var(--line);padding:6px 8px;font-family:inherit;font-size:0.82rem;font-weight:600;color:${isIn ? 'var(--ok)' : 'var(--danger)'};">
+            <option value="in" ${isIn ? 'selected' : ''}>입금</option>
+            <option value="out" ${!isIn ? 'selected' : ''}>출금</option>
+          </select>
+          <input type="text" class="inp-name" placeholder="용도/메모"
+            value="${t.note || ''}"
+            data-fund-idx="${idx}" data-fund-field="note">
+          <input type="number" class="inp-amount" placeholder="금액"
+            value="${t.amount || 0}"
+            data-fund-idx="${idx}" data-fund-field="amount">
+          <span></span>
+          <button class="del-btn" data-fund-delete-idx="${idx}">✕</button>
+        </div>
+      `;
+    });
+  }
+
+  container.innerHTML = `
+    <div class="summary-grid">
+      <div class="summary-card" style="border-left: 3px solid var(--navy);">
+        <div class="sc-label">💎 투자 자금 잔액</div>
+        <div class="sc-value navy">${fmt(balance)}</div>
+        <div class="sc-sub">제품 투자용으로 따로 빼둔 돈</div>
+      </div>
+      <div class="summary-card" style="border-left: 3px solid var(--ok);">
+        <div class="sc-label">총 입금 누적</div>
+        <div class="sc-value ok">${fmt(totalIn)}</div>
+        <div class="sc-sub">${txs.filter(t => t.type === 'in').length}건</div>
+      </div>
+      <div class="summary-card" style="border-left: 3px solid var(--danger);">
+        <div class="sc-label">총 출금 누적</div>
+        <div class="sc-value danger">${fmt(totalOut)}</div>
+        <div class="sc-sub">${txs.filter(t => t.type === 'out').length}건 사용</div>
+      </div>
+      <div class="summary-card" style="border-left: 3px solid var(--accent);">
+        <div class="sc-label">총 거래</div>
+        <div class="sc-value accent">${txs.length}건</div>
+        <div class="sc-sub">전체 입출금 건수</div>
+      </div>
+    </div>
+
+    <div style="background: var(--surface); padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--navy); margin-bottom: 14px; font-size: 0.82rem; line-height: 1.6; color: var(--text-mid);">
+      <strong style="color:var(--text);">💡 제품 투자 자금</strong> — 신제품 개발·시제품·신규 카테고리 진출 등을 위해 따로 빼두는 돈입니다.
+      자금이 들어오면 <span style="color:var(--ok);font-weight:600;">입금</span>으로, 실제로 제품 투자에 사용하면 <span style="color:var(--danger);font-weight:600;">출금</span>으로 기록하세요.
+      <em style="color:var(--text-dim);">각 계좌의 "제품 투자" 항목(재고 자산)과는 별도로 관리됩니다.</em>
+    </div>
+
+    <div class="item-list">
+      <div class="il-header">
+        <div class="il-title">💎 입출금 내역</div>
+        <div class="il-total accent">잔액 ${fmt(balance)}</div>
+      </div>
+      <div class="il-body">${rowsHtml}</div>
+      <div class="il-footer">
+        <button class="ok-btn" id="add-fund-in">+ 입금 추가</button>
+        <button class="ok-btn" id="add-fund-out" style="margin-left:8px; background:var(--danger);">+ 출금 추가</button>
+      </div>
+    </div>
+  `;
+
+  attachInvestFundListeners();
+}
+
+function attachInvestFundListeners() {
+  const container = document.querySelector('[data-tab-content="investfund"]');
+  if (!container) return;
+
+  container.querySelectorAll('[data-fund-idx]').forEach(el => {
+    const idx = parseInt(el.dataset.fundIdx);
+    const field = el.dataset.fundField;
+    const apply = () => {
+      const tx = DATA.investFund.transactions[idx];
+      if (!tx) return;
+      if (field === 'amount') {
+        tx.amount = Math.abs(parseFloat(el.value) || 0);
+      } else if (field === 'type') {
+        tx.type = el.value === 'in' ? 'in' : 'out';
+      } else {
+        tx[field] = el.value;
+      }
+      autoSave();
+    };
+    el.addEventListener('change', () => { apply(); renderInvestFundTab(); });
+    el.addEventListener('input', apply);
+  });
+
+  container.querySelectorAll('[data-fund-delete-idx]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.fundDeleteIdx);
+      if (!confirm('이 거래를 삭제할까요?')) return;
+      DATA.investFund.transactions.splice(idx, 1);
+      autoSave();
+      renderInvestFundTab();
+    });
+  });
+
+  const addIn = container.querySelector('#add-fund-in');
+  if (addIn) {
+    addIn.addEventListener('click', () => {
+      DATA.investFund.transactions.push({
+        id: 'fund_' + Date.now().toString(36),
+        date: new Date().toISOString().slice(0, 10),
+        type: 'in',
+        amount: 0,
+        note: ''
+      });
+      autoSave();
+      renderInvestFundTab();
+    });
+  }
+  const addOut = container.querySelector('#add-fund-out');
+  if (addOut) {
+    addOut.addEventListener('click', () => {
+      DATA.investFund.transactions.push({
+        id: 'fund_' + Date.now().toString(36),
+        date: new Date().toISOString().slice(0, 10),
+        type: 'out',
+        amount: 0,
+        note: ''
+      });
+      autoSave();
+      renderInvestFundTab();
+    });
+  }
+}
+
+// ==================== 세금 탭 (부가세 / 소득세 / 법인세) ====================
+const TAX_CATEGORIES = [
+  { key: 'vat', label: '🧾 부가세', hint: '일반과세자 분기별(1·4·7·10월 25일까지)' },
+  { key: 'income', label: '👤 종합소득세', hint: '개인사업자 연 1회 (5월 31일까지)' },
+  { key: 'corporate', label: '🏢 법인세', hint: '법인 연 1회 (전년도 사업연도 종료 3개월 내)' }
+];
+
+function renderTaxesTab() {
+  const container = document.querySelector('[data-tab-content="taxes"]');
+  if (!container) return;
+
+  if (!DATA.taxes || typeof DATA.taxes !== 'object') {
+    DATA.taxes = { vat: [], income: [], corporate: [] };
+  }
+  TAX_CATEGORIES.forEach(c => {
+    if (!Array.isArray(DATA.taxes[c.key])) DATA.taxes[c.key] = [];
+  });
+
+  // 상단 요약
+  let totalUnpaid = 0, totalPaid = 0, urgentCount = 0;
+  const today = new Date().toISOString().slice(0, 10);
+  const soonDate = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().slice(0, 10);
+  })();
+  TAX_CATEGORIES.forEach(c => {
+    DATA.taxes[c.key].forEach(t => {
+      if (t.paid) totalPaid += (t.amount || 0);
+      else {
+        totalUnpaid += (t.amount || 0);
+        if (t.dueDate && t.dueDate <= soonDate && t.dueDate >= today) urgentCount++;
+      }
+    });
+  });
+
+  let sectionsHtml = '';
+  TAX_CATEGORIES.forEach(cat => {
+    const items = DATA.taxes[cat.key];
+    const unpaidSum = items.filter(t => !t.paid).reduce((s, t) => s + (t.amount || 0), 0);
+    const paidSum = items.filter(t => t.paid).reduce((s, t) => s + (t.amount || 0), 0);
+
+    // 마감일순 정렬 (가까운 것 먼저)
+    const sorted = items.map((t, i) => ({ ...t, _idx: i }))
+      .sort((a, b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999'));
+
+    let rowsHtml = '';
+    if (sorted.length === 0) {
+      rowsHtml = `<div class="item-empty">${cat.label.replace(/^[^ ]+ /, '')} 기록이 없습니다. 아래 + 버튼으로 추가하세요.</div>`;
+    } else {
+      sorted.forEach(t => {
+        const idx = t._idx;
+        const dday = t.dueDate ? Math.ceil((new Date(t.dueDate) - new Date()) / 86400000) : null;
+        let ddayLabel = '';
+        if (dday !== null) {
+          if (t.paid) ddayLabel = `<span style="font-size:0.7rem;color:var(--text-dim);">납부완료</span>`;
+          else if (dday < 0) ddayLabel = `<span style="font-size:0.7rem;color:var(--danger);font-weight:700;">미납 ${-dday}일</span>`;
+          else if (dday <= 14) ddayLabel = `<span style="font-size:0.7rem;color:var(--danger);font-weight:700;">D-${dday}</span>`;
+          else if (dday <= 30) ddayLabel = `<span style="font-size:0.7rem;color:var(--warn);font-weight:600;">D-${dday}</span>`;
+          else ddayLabel = `<span style="font-size:0.7rem;color:var(--text-dim);">D-${dday}</span>`;
+        }
+        rowsHtml += `
+          <div class="item-row tax-row ${t.paid ? 'tax-paid' : ''}">
+            <input type="text" class="inp-name" placeholder="기간 (예: 2026-1기 예정)"
+              value="${t.period || ''}"
+              data-tax-cat="${cat.key}" data-tax-idx="${idx}" data-tax-field="period">
+            <input type="date" class="inp-date" value="${t.dueDate || ''}"
+              data-tax-cat="${cat.key}" data-tax-idx="${idx}" data-tax-field="dueDate" title="신고/납부 기한">
+            <span style="min-width:60px;text-align:center;">${ddayLabel}</span>
+            <input type="number" class="inp-amount" placeholder="세액"
+              value="${t.amount || 0}"
+              data-tax-cat="${cat.key}" data-tax-idx="${idx}" data-tax-field="amount">
+            <input type="text" class="inp-name" placeholder="메모"
+              value="${t.note || ''}"
+              data-tax-cat="${cat.key}" data-tax-idx="${idx}" data-tax-field="note"
+              style="flex:0.7;">
+            <label class="inp-cost" title="납부완료 시 체크">
+              <input type="checkbox" ${t.paid ? 'checked' : ''}
+                data-tax-cat="${cat.key}" data-tax-idx="${idx}" data-tax-field="paid">
+              <span>완료</span>
+            </label>
+            <button class="del-btn" data-tax-delete-cat="${cat.key}" data-tax-delete-idx="${idx}">✕</button>
+          </div>
+        `;
+      });
+    }
+
+    sectionsHtml += `
+      <div class="item-list">
+        <div class="il-header">
+          <div class="il-title">${cat.label}</div>
+          <span style="font-size:0.66rem;color:var(--text-dim);margin-left:8px;">${cat.hint}</span>
+          <div class="il-total ${unpaidSum > 0 ? 'expense' : 'income'}" style="margin-left:auto;">
+            미납 ${fmt(unpaidSum)}${paidSum > 0 ? ` <span style="color:var(--text-dim);font-size:0.72rem;font-weight:500;">· 납부 ${fmt(paidSum)}</span>` : ''}
+          </div>
+        </div>
+        <div class="il-body">${rowsHtml}</div>
+        <div class="il-footer">
+          <button class="ok-btn" data-tax-add="${cat.key}">+ ${cat.label.replace(/^[^ ]+ /, '')} 항목 추가</button>
+        </div>
+      </div>
+    `;
+  });
+
+  container.innerHTML = `
+    <div class="summary-grid">
+      <div class="summary-card" style="border-left: 3px solid var(--danger);">
+        <div class="sc-label">총 미납 세금</div>
+        <div class="sc-value danger">${fmt(totalUnpaid)}</div>
+        <div class="sc-sub">납부 안 한 모든 세금 합계</div>
+      </div>
+      <div class="summary-card" style="border-left: 3px solid var(--warn);">
+        <div class="sc-label">⚠ 30일 내 마감</div>
+        <div class="sc-value ${urgentCount > 0 ? 'warn' : 'ok'}">${urgentCount}건</div>
+        <div class="sc-sub">납부 기한 임박 항목</div>
+      </div>
+      <div class="summary-card" style="border-left: 3px solid var(--ok);">
+        <div class="sc-label">납부 완료 누적</div>
+        <div class="sc-value ok">${fmt(totalPaid)}</div>
+        <div class="sc-sub">올해 누적 납부액</div>
+      </div>
+      <div class="summary-card" style="border-left: 3px solid var(--accent);">
+        <div class="sc-label">전체 등록 건수</div>
+        <div class="sc-value accent">${TAX_CATEGORIES.reduce((s, c) => s + DATA.taxes[c.key].length, 0)}건</div>
+        <div class="sc-sub">부가세 · 소득세 · 법인세 합산</div>
+      </div>
+    </div>
+
+    <div style="background: var(--surface); padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--warn); margin-bottom: 14px; font-size: 0.82rem; line-height: 1.6; color: var(--text-mid);">
+      <strong style="color:var(--text);">🧾 세금 기록</strong> — 신고·납부 기한과 예상 세액을 미리 기록해두세요.
+      D-14 이내는 빨간색, D-30 이내는 노란색으로 자동 강조됩니다.
+      <em style="color:var(--text-dim);">메모란에 매입·매출 자료 정리 위치, 세무사 연락처 등을 적어두면 편리합니다.</em>
+    </div>
+
+    ${sectionsHtml}
+  `;
+
+  attachTaxesListeners();
+}
+
+function attachTaxesListeners() {
+  const container = document.querySelector('[data-tab-content="taxes"]');
+  if (!container) return;
+
+  container.querySelectorAll('[data-tax-cat]').forEach(el => {
+    const cat = el.dataset.taxCat;
+    const idx = parseInt(el.dataset.taxIdx);
+    const field = el.dataset.taxField;
+    if (!cat || isNaN(idx) || !field) return;
+    const apply = () => {
+      const item = DATA.taxes[cat] && DATA.taxes[cat][idx];
+      if (!item) return;
+      if (field === 'amount') {
+        item.amount = parseFloat(el.value) || 0;
+      } else if (field === 'paid') {
+        item.paid = el.checked;
+        if (item.paid && !item.paidDate) item.paidDate = new Date().toISOString().slice(0, 10);
+        if (!item.paid) item.paidDate = '';
+      } else {
+        item[field] = el.value;
+      }
+      autoSave();
+    };
+    if (el.type === 'checkbox') {
+      el.addEventListener('change', () => { apply(); renderTaxesTab(); });
+    } else {
+      el.addEventListener('input', apply);
+      el.addEventListener('change', () => { apply(); renderTaxesTab(); });
+    }
+  });
+
+  container.querySelectorAll('[data-tax-delete-cat]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const cat = btn.dataset.taxDeleteCat;
+      const idx = parseInt(btn.dataset.taxDeleteIdx);
+      if (!confirm('이 세금 항목을 삭제할까요?')) return;
+      DATA.taxes[cat].splice(idx, 1);
+      autoSave();
+      renderTaxesTab();
+    });
+  });
+
+  container.querySelectorAll('[data-tax-add]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const cat = btn.dataset.taxAdd;
+      if (!DATA.taxes[cat]) DATA.taxes[cat] = [];
+      DATA.taxes[cat].push({
+        id: 'tax_' + Date.now().toString(36),
+        period: '',
+        dueDate: '',
+        amount: 0,
+        paid: false,
+        paidDate: '',
+        note: ''
+      });
+      autoSave();
+      renderTaxesTab();
+    });
+  });
+}
+
 // ==================== 전체 탭 ====================
 function renderAllTab(containerKey, accountKeys, displayName) {
   containerKey = containerKey || 'all';
@@ -3622,8 +4110,8 @@ function renderAllTab(containerKey, accountKeys, displayName) {
   });
 
   const totalNetAssets = totalBalance + totalInventory;
-  // 순익 = 매출 - 원가 - 광고비 - 고정비 - 1회성 (투자는 비용 아님)
-  const totalProfit = totalRevenue - totalCogs - totalAds - totalFixed - totalExpense;
+  // 순익 = 매출 + 일회성 수입 − 원가 − 광고비 − 고정비 − 1회성 (제품 투자는 비용 아님)
+  const totalProfit = totalRevenue + totalIncome - totalCogs - totalAds - totalFixed - totalExpense;
 
   const netBurn = totalFixed - totalIncome;
   let runwayText, runwayClass, runwayEndText;
@@ -3753,6 +4241,7 @@ function renderAllTab(containerKey, accountKeys, displayName) {
       </div>
       <div class="pnl-breakdown">
         <div class="pnl-bd-row"><span>매출</span><span>+${fmt(totalRevenue)}</span></div>
+        <div class="pnl-bd-row"><span>일회성 수입 (해당월)</span><span style="color:var(--ok);">+${fmt(totalIncome)}</span></div>
         <div class="pnl-bd-row"><span>원가 (COGS)</span><span>-${fmt(totalCogs)}</span></div>
         <div class="pnl-bd-row"><span>광고비</span><span>-${fmt(totalAds)}</span></div>
         <div class="pnl-bd-row"><span>월 고정비</span><span>-${fmt(totalFixed)}</span></div>
@@ -3939,7 +4428,9 @@ async function saveVersion() {
     baseDate: DATA.baseDate,
     tabNames: { ...DATA.tabNames },
     tabOrder: [...DATA.tabOrder],
-    composites: JSON.parse(JSON.stringify(DATA.composites || []))
+    composites: JSON.parse(JSON.stringify(DATA.composites || [])),
+    investFund: JSON.parse(JSON.stringify(DATA.investFund || { balance: 0, transactions: [] })),
+    taxes: JSON.parse(JSON.stringify(DATA.taxes || { vat: [], income: [], corporate: [] }))
   };
   const version = {
     id: 'v_' + Date.now(),
@@ -3954,6 +4445,8 @@ async function saveVersion() {
   getAccountKeys().forEach(k => renderAccountTab(k));
   (DATA.composites || []).forEach(c => renderCompositeTab(c.key));
   renderLoansTab();
+  renderInvestFundTab();
+  renderTaxesTab();
   renderTopBar();
   if (active) switchTab(active);
 
@@ -3981,6 +4474,8 @@ function restoreVersion(id) {
     if (v.snapshot.tabNames) DATA.tabNames = { ...v.snapshot.tabNames };
     if (v.snapshot.tabOrder) DATA.tabOrder = [...v.snapshot.tabOrder];
     if (Array.isArray(v.snapshot.composites)) DATA.composites = JSON.parse(JSON.stringify(v.snapshot.composites));
+    if (v.snapshot.investFund) DATA.investFund = JSON.parse(JSON.stringify(v.snapshot.investFund));
+    if (v.snapshot.taxes) DATA.taxes = JSON.parse(JSON.stringify(v.snapshot.taxes));
     autoSave();
     renderAll();
     showStatus('✓ 버전 복원됨');
@@ -4019,6 +4514,8 @@ function deleteVersion(id) {
     getAccountKeys().forEach(k => renderAccountTab(k));
     (DATA.composites || []).forEach(c => renderCompositeTab(c.key));
     renderLoansTab();
+    renderInvestFundTab();
+    renderTaxesTab();
     renderTopBar();
     if (active) switchTab(active);
     showStatus('✓ 버전 삭제됨');
@@ -4394,6 +4891,8 @@ function renderAll() {
   getAccountKeys().forEach(k => renderAccountTab(k));
   (DATA.composites || []).forEach(c => renderCompositeTab(c.key));
   renderLoansTab();
+  renderInvestFundTab();
+  renderTaxesTab();
   renderTopBar();
   // 첫 탭 활성화
   const firstTab = DATA.tabOrder[0] || 'all';
