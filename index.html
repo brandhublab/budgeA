@@ -126,6 +126,7 @@
   /* 시스템 탭 색상 */
   .tab.active[data-tab-key="investfund"] { border-bottom-color: var(--navy); }
   .tab.active[data-tab-key="taxes"] { border-bottom-color: var(--warn); }
+  .tab.active[data-tab-key="emergency"] { border-bottom-color: var(--ok); }
   /* 합계 탭(composite)은 accent 색으로 표시 */
   .tab.active[data-tab-key^="comp_"] { border-bottom-color: var(--accent); }
   /* 사용자 추가 사업자(account_*) 탭 */
@@ -411,6 +412,13 @@
   }
   .item-row.expense-row {
     grid-template-columns: 110px 1.8fr 1fr 0.9fr 46px 36px;
+  }
+  /* 비상금 행: 종류, 계좌, 금액, 메모, 삭제 */
+  .item-row.emergency-row {
+    grid-template-columns: 1.2fr 1.5fr 1fr 1.2fr 36px;
+  }
+  .il-cols.emergency-row {
+    grid-template-columns: 1.2fr 1.5fr 1fr 1.2fr 36px;
   }
   @media (max-width: 680px) {
     .item-row {
@@ -1265,7 +1273,7 @@ document.getElementById('pwInput').addEventListener('keydown', (e) => {
 
 <script>
 // ==================== 기본 데이터 ====================
-const DEFAULT_ACCOUNT_ORDER = ['all', 'philharmonic', 'scentgallery', 'personal', 'aromaticlab', 'loans', 'investfund', 'taxes'];
+const DEFAULT_ACCOUNT_ORDER = ['all', 'philharmonic', 'scentgallery', 'personal', 'aromaticlab', 'loans', 'investfund', 'taxes', 'emergency'];
 const DEFAULT_NAMES = {
   all: '📊 전체',
   philharmonic: '필하모닉',
@@ -1274,7 +1282,8 @@ const DEFAULT_NAMES = {
   aromaticlab: '아로마틱랩',
   loans: '🏦 대출',
   investfund: '💎 제품 투자 자금',
-  taxes: '🧾 세금'
+  taxes: '🧾 세금',
+  emergency: '🚨 비상금'
 };
 
 const DEFAULT_FIXED = {
@@ -1329,6 +1338,7 @@ function defaultData() {
     loans: DEFAULT_LOANS.map(l => ({ ...l, repayments: [...(l.repayments || [])] })),
     investFund: { balance: 0, transactions: [] },
     taxes: { vat: [], income: [], corporate: [] },
+    emergencyFund: [],
     baseDate: '2026-04-17',
     tabOrder: [...DEFAULT_ACCOUNT_ORDER],
     tabNames: { ...DEFAULT_NAMES },
@@ -1415,29 +1425,30 @@ function mergeWithDefaults(data) {
       corporate: Array.isArray(data.taxes.corporate) ? data.taxes.corporate : []
     };
   }
+  // 비상금 보존 (기존 데이터에 없으면 영향 없음)
+  if (Array.isArray(data.emergencyFund)) {
+    merged.emergencyFund = data.emergencyFund;
+  }
   // tabOrder에 신규 시스템 탭 자동 추가 (기존 사용자 호환)
   if (!merged.tabOrder.includes('loans')) {
     merged.tabOrder.push('loans');
   }
   if (!merged.tabOrder.includes('investfund')) {
-    // 대출 바로 다음에 삽입
     const loansIdx = merged.tabOrder.indexOf('loans');
     merged.tabOrder.splice(loansIdx + 1, 0, 'investfund');
   }
   if (!merged.tabOrder.includes('taxes')) {
-    // investfund 다음에 삽입
     const invIdx = merged.tabOrder.indexOf('investfund');
     merged.tabOrder.splice(invIdx + 1, 0, 'taxes');
   }
-  if (!merged.tabNames.loans) {
-    merged.tabNames.loans = '🏦 대출';
+  if (!merged.tabOrder.includes('emergency')) {
+    const taxIdx = merged.tabOrder.indexOf('taxes');
+    merged.tabOrder.splice(taxIdx + 1, 0, 'emergency');
   }
-  if (!merged.tabNames.investfund) {
-    merged.tabNames.investfund = '💎 제품 투자 자금';
-  }
-  if (!merged.tabNames.taxes) {
-    merged.tabNames.taxes = '🧾 세금';
-  }
+  if (!merged.tabNames.loans) merged.tabNames.loans = '🏦 대출';
+  if (!merged.tabNames.investfund) merged.tabNames.investfund = '💎 제품 투자 자금';
+  if (!merged.tabNames.taxes) merged.tabNames.taxes = '🧾 세금';
+  if (!merged.tabNames.emergency) merged.tabNames.emergency = '🚨 비상금';
   return merged;
 }
 
@@ -1702,7 +1713,7 @@ function uploadJSON(event) {
 }
 
 // ==================== 탭 관리 (추가/삭제/순서) ====================
-const SYSTEM_TAB_KEYS = ['all', 'philharmonic', 'scentgallery', 'personal', 'aromaticlab', 'loans', 'investfund', 'taxes'];
+const SYSTEM_TAB_KEYS = ['all', 'philharmonic', 'scentgallery', 'personal', 'aromaticlab', 'loans', 'investfund', 'taxes', 'emergency'];
 const BASE_ACCOUNT_KEYS = ['philharmonic', 'scentgallery', 'personal', 'aromaticlab'];
 
 function isSystemTab(key) { return SYSTEM_TAB_KEYS.includes(key); }
@@ -2236,6 +2247,12 @@ function renderTabContents() {
   taxDiv.className = 'tab-content';
   taxDiv.dataset.tabContent = 'taxes';
   container.appendChild(taxDiv);
+
+  // 비상금 탭
+  const emergencyDiv = document.createElement('div');
+  emergencyDiv.className = 'tab-content';
+  emergencyDiv.dataset.tabContent = 'emergency';
+  container.appendChild(emergencyDiv);
 }
 
 // 합계 탭(composite) 렌더링: renderAllTab을 그대로 재사용
@@ -4022,10 +4039,12 @@ function attachTaxesListeners() {
       autoSave();
     };
     if (el.type === 'checkbox') {
-      el.addEventListener('change', () => { apply(); renderTaxesTab(); });
+      el.addEventListener('change', () => { apply(); renderTaxesTab();
+  renderEmergencyTab(); });
     } else {
       el.addEventListener('input', apply);
-      el.addEventListener('change', () => { apply(); renderTaxesTab(); });
+      el.addEventListener('change', () => { apply(); renderTaxesTab();
+  renderEmergencyTab(); });
     }
   });
 
@@ -4037,6 +4056,7 @@ function attachTaxesListeners() {
       DATA.taxes[cat].splice(idx, 1);
       autoSave();
       renderTaxesTab();
+  renderEmergencyTab();
     });
   });
 
@@ -4055,8 +4075,244 @@ function attachTaxesListeners() {
       });
       autoSave();
       renderTaxesTab();
+  renderEmergencyTab();
     });
   });
+}
+
+// ==================== 비상금 탭 ====================
+const EMERGENCY_KIND_SUGGESTIONS = ['현금', '예금', '적금', 'CMA·MMF', '청약', '보험 해약환급금', '기타'];
+
+function renderEmergencyTab() {
+  const container = document.querySelector('[data-tab-content="emergency"]');
+  if (!container) return;
+
+  if (!Array.isArray(DATA.emergencyFund)) DATA.emergencyFund = [];
+  const items = DATA.emergencyFund;
+
+  const total = items.reduce((s, e) => s + (e.amount || 0), 0);
+
+  // 종류별 합계
+  const byKind = {};
+  items.forEach(e => {
+    const k = e.kind || '기타';
+    byKind[k] = (byKind[k] || 0) + (e.amount || 0);
+  });
+  const kindRows = Object.entries(byKind).sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `<div class="pnl-bd-row"><span>${escapeHtml(k)}</span><span>${fmt(v)}</span></div>`).join('');
+
+  // 정렬 상태 (탭 자체 상태로 보관)
+  const sortKey = '__emergency';
+  const sortState = itemSortState[sortKey];
+  const sorted = items.map((it, i) => ({ ...it, _idx: i }));
+  if (sortState) {
+    const m = sortState.dir === 'desc' ? -1 : 1;
+    sorted.sort((a, b) => {
+      let va, vb;
+      if (sortState.by === 'amount') { va = a.amount || 0; vb = b.amount || 0; }
+      else if (sortState.by === 'account') { va = (a.account || '').toLowerCase(); vb = (b.account || '').toLowerCase(); }
+      else { va = (a.kind || '').toLowerCase(); vb = (b.kind || '').toLowerCase(); }
+      if (va < vb) return -1 * m;
+      if (va > vb) return 1 * m;
+      return 0;
+    });
+  }
+
+  const arrow = (by) => (!sortState || sortState.by !== by) ? '' : (sortState.dir === 'asc' ? ' ↑' : ' ↓');
+  const colArrow = (by) => (!sortState || sortState.by !== by) ? '' : `<span class="il-col-arrow">${sortState.dir === 'asc' ? '▲' : '▼'}</span>`;
+  const isActiveCol = (by) => sortState && sortState.by === by ? 'active' : '';
+
+  let rowsHtml = '';
+  if (sorted.length === 0) {
+    rowsHtml = '<div class="item-empty">비상금이 없습니다. 아래 + 버튼으로 추가하세요.</div>';
+  } else {
+    sorted.forEach(it => {
+      const idx = it._idx;
+      rowsHtml += `
+        <div class="item-row emergency-row">
+          <input type="text" class="inp-name" placeholder="종류 (예: 정기예금)"
+            list="emergency-kind-list"
+            value="${escapeHtml(it.kind || '')}"
+            data-emrg-idx="${idx}" data-emrg-field="kind">
+          <input type="text" class="inp-name" placeholder="계좌 (예: 신한은행 1234)"
+            value="${escapeHtml(it.account || '')}"
+            data-emrg-idx="${idx}" data-emrg-field="account">
+          <input type="number" class="inp-amount" placeholder="금액"
+            value="${it.amount || 0}"
+            data-emrg-idx="${idx}" data-emrg-field="amount">
+          <input type="text" class="inp-name" placeholder="메모 (선택)"
+            value="${escapeHtml(it.note || '')}"
+            data-emrg-idx="${idx}" data-emrg-field="note"
+            style="flex:0.7;">
+          <button class="del-btn" data-emrg-delete="${idx}">✕</button>
+        </div>
+      `;
+    });
+  }
+
+  container.innerHTML = `
+    <datalist id="emergency-kind-list">
+      ${EMERGENCY_KIND_SUGGESTIONS.map(k => `<option value="${k}">`).join('')}
+    </datalist>
+
+    <div class="summary-grid">
+      <div class="summary-card" style="border-left: 3px solid var(--ok);">
+        <div class="sc-label">🚨 비상금 총액</div>
+        <div class="sc-value ok">${fmt(total)}</div>
+        <div class="sc-sub">${items.length}건 합산</div>
+      </div>
+      <div class="summary-card" style="border-left: 3px solid var(--navy);">
+        <div class="sc-label">종류 수</div>
+        <div class="sc-value navy">${Object.keys(byKind).length}종</div>
+        <div class="sc-sub">${Object.keys(byKind).slice(0, 3).join(' · ') || '없음'}</div>
+      </div>
+      <div class="summary-card" style="border-left: 3px solid var(--accent);">
+        <div class="sc-label">최대 보유 종류</div>
+        <div class="sc-value accent">${(() => {
+          const top = Object.entries(byKind).sort((a, b) => b[1] - a[1])[0];
+          return top ? top[0] : '-';
+        })()}</div>
+        <div class="sc-sub">${(() => {
+          const top = Object.entries(byKind).sort((a, b) => b[1] - a[1])[0];
+          if (!top || total === 0) return '-';
+          return `${fmt(top[1])} (${((top[1]/total)*100).toFixed(1)}%)`;
+        })()}</div>
+      </div>
+      <div class="summary-card" style="border-left: 3px solid var(--warn);">
+        <div class="sc-label">평균 보유액</div>
+        <div class="sc-value warn">${items.length > 0 ? fmt(total / items.length) : fmt(0)}</div>
+        <div class="sc-sub">건당 평균</div>
+      </div>
+    </div>
+
+    <div style="background: var(--surface); padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--ok); margin-bottom: 14px; font-size: 0.82rem; line-height: 1.6; color: var(--text-mid);">
+      <strong style="color:var(--text);">🚨 비상금</strong> — 갑작스러운 상황(질병, 사고, 사업 위기 등)에 대비해 따로 빼둔 안전 자금입니다.
+      <em style="color:var(--text-dim);">📊 전체 탭에서 현금/재고와 함께 총 자산에 포함되어 계산됩니다.</em>
+    </div>
+
+    ${Object.keys(byKind).length > 0 ? `
+    <div class="pnl-block" style="margin-bottom: 14px;">
+      <div class="pnl-header">
+        <div class="pnl-title">📊 종류별 합계</div>
+      </div>
+      <div class="pnl-breakdown">
+        ${kindRows}
+        <div class="pnl-bd-row result"><span>합계</span><span>${fmt(total)}</span></div>
+      </div>
+    </div>` : ''}
+
+    <div class="item-list">
+      <div class="il-header">
+        <div class="il-title">🚨 비상금 항목</div>
+        <div class="il-sort">
+          <span class="il-sort-label">정렬</span>
+          <button class="il-sort-btn ${isActiveCol('kind') ? 'active' : ''}" onclick="sortEmergency('kind')">종류${arrow('kind')}</button>
+          <button class="il-sort-btn ${isActiveCol('account') ? 'active' : ''}" onclick="sortEmergency('account')">계좌${arrow('account')}</button>
+          <button class="il-sort-btn ${isActiveCol('amount') ? 'active' : ''}" onclick="sortEmergency('amount')">금액${arrow('amount')}</button>
+          ${sortState ? `<button class="il-sort-btn il-sort-reset" onclick="clearEmergencySort()" title="입력 순서로 되돌리기">↺</button>` : ''}
+        </div>
+        <div class="il-total income">${fmt(total)}</div>
+      </div>
+      ${items.length > 0 ? `
+      <div class="il-cols emergency-row">
+        <span class="il-col ${isActiveCol('kind')}" onclick="sortEmergency('kind')">종류${colArrow('kind')}</span>
+        <span class="il-col ${isActiveCol('account')}" onclick="sortEmergency('account')">계좌${colArrow('account')}</span>
+        <span class="il-col ${isActiveCol('amount')}" onclick="sortEmergency('amount')">금액${colArrow('amount')}</span>
+        <span class="il-col il-col-dim">메모</span>
+        <span class="il-col il-col-dim"></span>
+      </div>
+      ` : ''}
+      <div class="il-body">${rowsHtml}</div>
+      <div class="il-footer">
+        <button class="ok-btn" id="add-emergency-item">+ 비상금 추가</button>
+      </div>
+    </div>
+  `;
+
+  attachEmergencyListeners();
+}
+
+function sortEmergency(by) {
+  const key = '__emergency';
+  const cur = itemSortState[key];
+  let nextDir;
+  if (cur && cur.by === by) {
+    nextDir = cur.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    nextDir = (by === 'amount') ? 'desc' : 'asc';
+  }
+  itemSortState[key] = { by, dir: nextDir };
+  renderEmergencyTab();
+}
+
+function clearEmergencySort() {
+  delete itemSortState['__emergency'];
+  renderEmergencyTab();
+}
+
+function attachEmergencyListeners() {
+  const container = document.querySelector('[data-tab-content="emergency"]');
+  if (!container) return;
+
+  container.querySelectorAll('[data-emrg-idx]').forEach(el => {
+    const idx = parseInt(el.dataset.emrgIdx);
+    const field = el.dataset.emrgField;
+    const apply = () => {
+      const it = DATA.emergencyFund[idx];
+      if (!it) return;
+      if (field === 'amount') {
+        it.amount = parseFloat(el.value) || 0;
+      } else {
+        it[field] = el.value;
+      }
+      autoSave();
+    };
+    el.addEventListener('input', apply);
+    el.addEventListener('change', () => {
+      apply();
+      if (field === 'amount') {
+        // 합계 갱신을 위해 비상금 탭과 전체 탭 다시 렌더링
+        renderEmergencyTab();
+        renderAllTab();
+        renderTopBar();
+      }
+    });
+    el.addEventListener('blur', () => {
+      apply();
+      if (field === 'kind' || field === 'amount') {
+        // 종류별 합계 / 카드 갱신
+        renderEmergencyTab();
+        renderAllTab();
+      }
+    });
+  });
+
+  container.querySelectorAll('[data-emrg-delete]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx = parseInt(btn.dataset.emrgDelete);
+      if (!confirm('이 비상금 항목을 삭제할까요?')) return;
+      DATA.emergencyFund.splice(idx, 1);
+      autoSave();
+      renderEmergencyTab();
+      renderAllTab();
+      renderTopBar();
+    });
+  });
+
+  const addBtn = container.querySelector('#add-emergency-item');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => {
+      DATA.emergencyFund.push({
+        id: 'emrg_' + Date.now().toString(36),
+        kind: '',
+        account: '',
+        amount: 0,
+        note: ''
+      });
+      autoSave();
+      renderEmergencyTab();
+    });
+  }
 }
 
 // ==================== 전체 탭 ====================
@@ -4110,6 +4366,12 @@ function renderAllTab(containerKey, accountKeys, displayName) {
   });
 
   const totalNetAssets = totalBalance + totalInventory;
+  // 비상금 총액
+  const totalEmergency = Array.isArray(DATA.emergencyFund)
+    ? DATA.emergencyFund.reduce((s, e) => s + (e.amount || 0), 0)
+    : 0;
+  // 총 자산 (현금 + 재고 + 비상금)
+  const totalAssetsAll = totalNetAssets + totalEmergency;
   // 순익 = 매출 + 일회성 수입 − 원가 − 광고비 − 고정비 − 1회성 (제품 투자는 비용 아님)
   const totalProfit = totalRevenue + totalIncome - totalCogs - totalAds - totalFixed - totalExpense;
 
@@ -4142,15 +4404,25 @@ function renderAllTab(containerKey, accountKeys, displayName) {
         <div class="sc-value navy">${fmt(totalInventory)}</div>
         <div class="sc-sub">초기 + 투자 − 원가</div>
       </div>
+      <div class="summary-card" style="border-left: 3px solid var(--ok);">
+        <div class="sc-label">🚨 비상금 총액</div>
+        <div class="sc-value ok">${fmt(totalEmergency)}</div>
+        <div class="sc-sub">${(DATA.emergencyFund || []).length}건 합산</div>
+      </div>
+      <div class="summary-card all">
+        <div class="sc-label">💰 총 자산</div>
+        <div class="sc-value accent">${fmt(totalAssetsAll)}</div>
+        <div class="sc-sub">현금 + 재고 + 비상금</div>
+      </div>
       <div class="summary-card all">
         <div class="sc-label">💎 총 순자산</div>
         <div class="sc-value accent">${fmt(totalNetAssets)}</div>
-        <div class="sc-sub">현금 + 재고</div>
+        <div class="sc-sub">현금 + 재고 (영업 자산)</div>
       </div>
       <div class="summary-card profit">
         <div class="sc-label">이번 달 순익</div>
         <div class="sc-value ${totalProfit >= 0 ? 'ok' : 'danger'}">${fmt(totalProfit)}</div>
-        <div class="sc-sub">매출 − 원가 − 비용</div>
+        <div class="sc-sub">매출 + 수입 − 원가 − 비용</div>
       </div>
     </div>
 
@@ -4430,7 +4702,8 @@ async function saveVersion() {
     tabOrder: [...DATA.tabOrder],
     composites: JSON.parse(JSON.stringify(DATA.composites || [])),
     investFund: JSON.parse(JSON.stringify(DATA.investFund || { balance: 0, transactions: [] })),
-    taxes: JSON.parse(JSON.stringify(DATA.taxes || { vat: [], income: [], corporate: [] }))
+    taxes: JSON.parse(JSON.stringify(DATA.taxes || { vat: [], income: [], corporate: [] })),
+    emergencyFund: JSON.parse(JSON.stringify(DATA.emergencyFund || []))
   };
   const version = {
     id: 'v_' + Date.now(),
@@ -4447,6 +4720,7 @@ async function saveVersion() {
   renderLoansTab();
   renderInvestFundTab();
   renderTaxesTab();
+  renderEmergencyTab();
   renderTopBar();
   if (active) switchTab(active);
 
@@ -4476,6 +4750,7 @@ function restoreVersion(id) {
     if (Array.isArray(v.snapshot.composites)) DATA.composites = JSON.parse(JSON.stringify(v.snapshot.composites));
     if (v.snapshot.investFund) DATA.investFund = JSON.parse(JSON.stringify(v.snapshot.investFund));
     if (v.snapshot.taxes) DATA.taxes = JSON.parse(JSON.stringify(v.snapshot.taxes));
+    if (Array.isArray(v.snapshot.emergencyFund)) DATA.emergencyFund = JSON.parse(JSON.stringify(v.snapshot.emergencyFund));
     autoSave();
     renderAll();
     showStatus('✓ 버전 복원됨');
@@ -4516,6 +4791,7 @@ function deleteVersion(id) {
     renderLoansTab();
     renderInvestFundTab();
     renderTaxesTab();
+  renderEmergencyTab();
     renderTopBar();
     if (active) switchTab(active);
     showStatus('✓ 버전 삭제됨');
@@ -4893,6 +5169,7 @@ function renderAll() {
   renderLoansTab();
   renderInvestFundTab();
   renderTaxesTab();
+  renderEmergencyTab();
   renderTopBar();
   // 첫 탭 활성화
   const firstTab = DATA.tabOrder[0] || 'all';
