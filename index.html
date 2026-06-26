@@ -4610,8 +4610,10 @@ function renderAllTab(containerKey, accountKeys, displayName) {
   // AROPHIL 재고 청산 같이 "더 이상 재투자 안 한다" 시나리오. 원가는 다시 안 사니까 회수금 전체가 자금.
   // 잔고 = 기존 잔고 + (일회성 회수금 - 일회성 지출)
   // 월 순지출 = 고정비 - 고정 회수금
-  const cBalance = totalBalance + totalIncome - totalExpense; // 잔고 + 일회성 회수금 - 일회성 지출
-  const cBurn = totalFixed - totalFixedIncome;                 // 매월 고정비 - 고정 회수금
+  // C) 재투자 안 함 — 회수금(매출-부가세-비용, 원가 제외) 전체를 자금으로 반영
+  // 매출이 아닌 회수금을 써야 정확. 부가세·비용은 손에 안 들어오는 돈이라 자금 아님.
+  const cBalance = totalBalance + totalIncomeRecovery - totalExpense; // 잔고 + 일회성 회수금 - 일회성 지출
+  const cBurn = totalFixed - totalFixedIncomeRecovery;                 // 매월 고정비 - 고정 회수금
   let reinvestRunway = {};
   if (cBurn <= 0) {
     reinvestRunway = { infinite: true, text: '∞', cls: 'ok', sub: '고정 회수금이 고정비 이상 · 소진 시점 없음' };
@@ -4698,6 +4700,11 @@ function renderAllTab(containerKey, accountKeys, displayName) {
         <div class="sc-value danger">${fmt(totalFixed)}</div>
         <div class="sc-sub">+ 부가세 ${fmt(totalFixedVat)}</div>
       </div>
+      <div class="summary-card fixed">
+        <div class="sc-label">🔻 월 순지출 (회수금 반영)</div>
+        <div class="sc-value ${(totalFixed - totalFixedIncomeRecovery) > 0 ? 'danger' : 'ok'}">${fmt(totalFixed - totalFixedIncomeRecovery)}</div>
+        <div class="sc-sub">고정비 ${fmt(totalFixed)} − 고정 회수금 ${fmt(totalFixedIncomeRecovery)}</div>
+      </div>
       <div class="summary-card income">
         <div class="sc-label">📅 월 총 고정 순익</div>
         <div class="sc-value ${fixedNetIncome >= 0 ? 'ok' : 'danger'}">${fixedNetIncome >= 0 ? '+' : ''}${fmt(fixedNetIncome)}</div>
@@ -4720,25 +4727,22 @@ function renderAllTab(containerKey, accountKeys, displayName) {
 
     <div class="summary-grid">
       <div class="summary-card runway">
-        <div class="sc-label">⏳ 런웨이 A · 고정비만 반영</div>
+        <div class="sc-label">⏳ 런웨이 A · 고정비만</div>
         <div class="sc-value ${fixedRunway.cls}">${fixedRunway.text}</div>
-        <div class="sc-sub">월 순지출 ${fmt(aBurn)} · 고정 수입/일회성 무시 (가장 보수적)</div>
-        <div class="sc-sub" style="margin-top:4px; font-weight:600; color:var(--text-mid);">${fixedRunway.sub}</div>
+        <div class="sc-sub">잔고 ${fmt(totalBalance)} / 월 ${fmt(aBurn)}</div>
+        <div class="sc-sub" style="font-weight:600; color:var(--text-mid);">${fixedRunway.sub}</div>
       </div>
       <div class="summary-card runway">
-        <div class="sc-label">⏳ 런웨이 B · 일회성 순익(1회) + 고정 순익 반영</div>
+        <div class="sc-label">⏳ 런웨이 B · 순익 기준</div>
         <div class="sc-value ${fullRunway.cls}">${fullRunway.text}</div>
-        <div class="sc-sub">잔고 ${fmt(totalBalance)} ${oneTimeNetIncome >= 0 ? '+' : '−'} 일회성 순익 ${fmt(Math.abs(oneTimeNetIncome))} = ${fmt(bBalance)}</div>
-        <div class="sc-sub">매월 고정 순지출 ${fmt(Math.max(bBurn, 0))} (= 고정비 − 고정 수입 순익)</div>
-        <div class="sc-sub" style="margin-top:4px; font-weight:600; color:var(--text-mid);">${fullRunway.sub}</div>
+        <div class="sc-sub">잔고+일회성 순익 ${fmt(bBalance)} / 월 ${fmt(Math.max(bBurn, 0))}</div>
+        <div class="sc-sub" style="font-weight:600; color:var(--text-mid);">${fullRunway.sub}</div>
       </div>
       <div class="summary-card runway">
-        <div class="sc-label">⏳ 런웨이 C · 재투자 안 함 (회수금 전체 반영)</div>
+        <div class="sc-label">⏳ 런웨이 C · 회수금 기준 (재투자 X)</div>
         <div class="sc-value ${reinvestRunway.cls}">${reinvestRunway.text}</div>
-        <div class="sc-sub">잔고 ${fmt(totalBalance)} + 일회성 회수금 ${fmt(totalIncome)} − 지출 ${fmt(totalExpense)} = ${fmt(cBalance)}</div>
-        <div class="sc-sub">매월 ${fmt(Math.max(cBurn, 0))} (= 고정비 − 고정 회수금)</div>
-        <div class="sc-sub" style="color:var(--text-dim); font-style:italic;">원가 차감 X — 재고 더 안 산다고 가정 (예: AROPHIL 청산)</div>
-        <div class="sc-sub" style="margin-top:4px; font-weight:600; color:var(--text-mid);">${reinvestRunway.sub}</div>
+        <div class="sc-sub">잔고+일회성 회수금 ${fmt(cBalance)} / 월 ${fmt(Math.max(cBurn, 0))}</div>
+        <div class="sc-sub" style="font-weight:600; color:var(--text-mid);">${reinvestRunway.sub}</div>
       </div>
     </div>
 
