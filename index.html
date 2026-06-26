@@ -413,12 +413,33 @@
   .item-row.expense-row {
     grid-template-columns: 110px 1.8fr 1fr 0.9fr 46px 36px;
   }
-  /* 일회성 수입 행: 날짜, 항목명, 회수금, 부가세, 원가, 삭제 */
+  /* 일회성 수입 행: 날짜 | 명칭 | 회수금 | 부가세(자동) | 원가 | 비용% | 수입(자동) | 삭제 */
   .item-row.income-row {
-    grid-template-columns: 110px 1.6fr 0.9fr 0.7fr 0.9fr 36px;
+    grid-template-columns: 95px 1fr 0.95fr 0.75fr 1fr 0.55fr 1fr 30px;
   }
   .il-cols.income-row {
-    grid-template-columns: 110px 1.6fr 0.9fr 0.7fr 0.9fr 36px;
+    grid-template-columns: 95px 1fr 0.95fr 0.75fr 1fr 0.55fr 1fr 30px;
+  }
+  /* 월 고정 수입 행: 명칭 | 회수금 | 부가세(자동) | 원가 | 비용% | 수입(자동) | 삭제 (날짜 없음) */
+  .item-row.income-row-nodate {
+    grid-template-columns: 1fr 0.95fr 0.75fr 1fr 0.55fr 1fr 30px;
+  }
+  .il-cols.income-row-nodate {
+    grid-template-columns: 1fr 0.95fr 0.75fr 1fr 0.55fr 1fr 30px;
+  }
+  .income-auto {
+    background: var(--bg);
+    border: 1px solid var(--line-soft);
+    color: var(--text-mid);
+    padding: 9px 10px;
+    font-size: 0.85rem;
+    text-align: right;
+    font-family: inherit;
+    border-radius: 3px;
+  }
+  .income-auto.income-net {
+    color: var(--ok);
+    font-weight: 600;
   }
   /* 비상금 행: 종류, 계좌, 금액, 메모, 삭제 */
   .item-row.emergency-row {
@@ -1562,8 +1583,8 @@ function computeRunway() {
     totalBalance += acc.balance || 0;
     totalFixed += (acc.fixed || []).reduce((s, f) => s + (f.amount || 0), 0);
     const mIncome = (acc.income || []).filter(i => (i.date || '').startsWith(monthStr));
-    totalIncome += mIncome.reduce((s, i) => s + ((i.amount || 0) - (i.cogs || 0)), 0); // 순익만 반영
-    totalFixedIncome += (acc.fixedIncome || []).reduce((s, f) => s + ((f.amount || 0) - (f.cogs || 0)), 0); // 고정 수입도 순익만
+    totalIncome += mIncome.reduce((s, i) => s + incomeItemNet(i), 0); // 새 공식: 회수금 × 0.9 - 원가 - 비용%
+    totalFixedIncome += (acc.fixedIncome || []).reduce((s, f) => s + incomeItemNet(f), 0); // 고정 수입도 동일
   });
   const netBurn = totalFixed - totalFixedIncome - totalIncome;
   const r = { totalBalance, netBurn };
@@ -2353,14 +2374,16 @@ function renderAccountTab(accountKey) {
 
   const monthIncomeItems = acc.income.filter(i => (i.date || '').startsWith(monthStr));
   const incomeSum = monthIncomeItems.reduce((s, i) => s + (i.amount || 0), 0); // 회수금
+  const incomeVatSum = monthIncomeItems.reduce((s, i) => s + incomeItemBreakdown(i).vat, 0); // 부가세 자동
   const incomeCogsSum = monthIncomeItems.reduce((s, i) => s + (i.cogs || 0), 0); // 원가
-  const incomeNetSum = incomeSum - incomeCogsSum; // 순익
-  // 월 고정 수입 (매월 반복) — 회수금 합계
+  const incomeExtraSum = monthIncomeItems.reduce((s, i) => s + incomeItemBreakdown(i).extraCost, 0); // 부가비용
+  const incomeNetSum = monthIncomeItems.reduce((s, i) => s + incomeItemNet(i), 0); // 순익 (자동)
+  // 월 고정 수입 (매월 반복) — 회수금/부가세/원가/부가비용/순익
   const fixedIncomeSum = (acc.fixedIncome || []).reduce((s, f) => s + (f.amount || 0), 0);
-  // 월 고정 수입 원가 (있으면 차감)
+  const fixedIncomeVat = (acc.fixedIncome || []).reduce((s, f) => s + incomeItemBreakdown(f).vat, 0);
   const fixedIncomeCogs = (acc.fixedIncome || []).reduce((s, f) => s + (f.cogs || 0), 0);
-  // 월 고정 수입 순익 = 회수금 - 원가
-  const fixedIncomeNet = fixedIncomeSum - fixedIncomeCogs;
+  const fixedIncomeExtra = (acc.fixedIncome || []).reduce((s, f) => s + incomeItemBreakdown(f).extraCost, 0);
+  const fixedIncomeNet = (acc.fixedIncome || []).reduce((s, f) => s + incomeItemNet(f), 0);
 
   const totalCostable = fixedCost + monthExpCost + monthInvestCost + monthAdsCost;
   const totalVat = fixedVat + monthExpVat + monthInvestVat + monthAdsVat;
@@ -2390,8 +2413,10 @@ function renderAccountTab(accountKey) {
     .reduce((s, i) => s + (i.amount || 0), 0);
   const pnlMonthIncomeItems = (acc.income || []).filter(i => (i.date || '').startsWith(pnlMonth));
   const pnlIncomeSum = pnlMonthIncomeItems.reduce((s, i) => s + (i.amount || 0), 0); // 회수금
+  const pnlIncomeVatSum = pnlMonthIncomeItems.reduce((s, i) => s + incomeItemBreakdown(i).vat, 0); // 부가세
   const pnlIncomeCogsSum = pnlMonthIncomeItems.reduce((s, i) => s + (i.cogs || 0), 0); // 원가
-  const pnlIncomeNetSum = pnlIncomeSum - pnlIncomeCogsSum; // 순익
+  const pnlIncomeExtraSum = pnlMonthIncomeItems.reduce((s, i) => s + incomeItemBreakdown(i).extraCost, 0); // 부가비용
+  const pnlIncomeNetSum = pnlMonthIncomeItems.reduce((s, i) => s + incomeItemNet(i), 0); // 순익
   // 월 고정 수입은 모든 월에 동일하게 적용 (fixedIncomeNet 사용)
   // 순익 = 매출 + 월 고정 수입 순익 + 일회성 수입 순익(원가차감) − 원가 − 광고비 − 고정비 − 1회성 지출
   const pnlBlockProfit = (pnlBlock.revenue || 0) + fixedIncomeNet + pnlIncomeNetSum - (pnlBlock.cogs || 0) - pnlAdsSum - fixedSum - pnlExpSum;
@@ -2445,12 +2470,12 @@ function renderAccountTab(accountKey) {
       <div class="summary-card income">
         <div class="sc-label">📅 월 고정 수입 순익</div>
         <div class="sc-value ${fixedIncomeNet >= 0 ? 'ok' : 'danger'}">${fixedIncomeNet >= 0 ? '+' : ''}${fmt(fixedIncomeNet)}</div>
-        <div class="sc-sub">회수금 ${fmt(fixedIncomeSum)} − 원가 ${fmt(fixedIncomeCogs)} · 매월 자동 반복</div>
+        <div class="sc-sub">회수금 ${fmt(fixedIncomeSum)} − 부가세 ${fmt(fixedIncomeVat)} − 원가 ${fmt(fixedIncomeCogs)}${fixedIncomeExtra > 0 ? ` − 비용% ${fmt(fixedIncomeExtra)}` : ''} · 매월 자동 반복</div>
       </div>
       <div class="summary-card income">
         <div class="sc-label">월 일회성 수입 순익</div>
         <div class="sc-value ${incomeNetSum >= 0 ? 'ok' : 'danger'}">${incomeNetSum >= 0 ? '+' : ''}${fmt(incomeNetSum)}</div>
-        <div class="sc-sub">회수금 ${fmt(incomeSum)} − 원가 ${fmt(incomeCogsSum)}</div>
+        <div class="sc-sub">회수금 ${fmt(incomeSum)} − 부가세 ${fmt(incomeVatSum)} − 원가 ${fmt(incomeCogsSum)}${incomeExtraSum > 0 ? ` − 비용% ${fmt(incomeExtraSum)}` : ''}</div>
       </div>
       <div class="summary-card runway">
         <div class="sc-label">⏳ 계좌별 런웨이</div>
@@ -2598,6 +2623,23 @@ function getCurrentMonthKey() {
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
 }
 
+// 수입 항목 자동 계산 (일회성 수입 + 월 고정 수입 공통)
+// 회수금(amount, 부가세 포함) → 부가세 10% 자동 차감 → 공급가 → 원가/부가비용 차감 → 순익
+// 사용자 표현 그대로: 회수금 × 10% = 부가세, 회수금 × 90% = 공급가
+function incomeItemBreakdown(item) {
+  const amt = item.amount || 0;
+  const cogs = item.cogs || 0;
+  const pct = item.extraCostPct || 0;
+  const vat = Math.round(amt * 0.1);
+  const supply = amt - vat;
+  const extraCost = Math.round(amt * pct / 100);
+  const net = supply - cogs - extraCost;
+  return { amt, cogs, pct, vat, supply, extraCost, net };
+}
+function incomeItemNet(item) {
+  return incomeItemBreakdown(item).net;
+}
+
 function renderInventorySection(accountKey) {
   const acc = DATA.accounts[accountKey];
   const start = acc.inventoryStart || 0;
@@ -2719,8 +2761,19 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
     indexed.forEach(item => {
       const idx = item._idx;
       const isCost = item.cost !== false; // 기본 true
+      // 일회성 수입 — 자동 계산 (사용자 표현 그대로: 회수금 × 10% = 부가세)
+      let autoVat = 0, autoSupply = 0, autoExtraCost = 0, autoNet = 0;
+      if (isIncome) {
+        const amt = item.amount || 0;
+        const cogs = item.cogs || 0;
+        const pct = item.extraCostPct || 0;
+        autoVat = Math.round(amt * 0.1);
+        autoSupply = amt - autoVat;
+        autoExtraCost = Math.round(amt * pct / 100);
+        autoNet = autoSupply - cogs - autoExtraCost;
+      }
       rowsHtml += `
-        <div class="item-row ${isIncome && hasDate ? 'income-row' : (hasDate ? 'expense-row' : '')}">
+        <div class="item-row ${isIncome ? (hasDate ? 'income-row' : 'income-row-nodate') : (hasDate ? 'expense-row' : '')}">
           ${hasDate ? `<input type="date" class="inp-date" value="${item.date || ''}"
             data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="date">` : ''}
           <input type="text" class="inp-name" placeholder="항목명"
@@ -2729,12 +2782,16 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
           <input type="number" class="inp-amount" placeholder="${isIncome ? '회수금' : '금액'}"
             value="${item.amount || 0}"
             data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="amount">
-          <input type="number" class="inp-vat" placeholder="부가세"
+          ${isIncome ? `<div class="income-auto" title="회수금 × 10% (자동)">${fmt(autoVat)}</div>` : `<input type="number" class="inp-vat" placeholder="부가세"
             value="${item.vat || 0}"
-            data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="vat">
+            data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="vat">`}
           ${isIncome ? `<input type="number" class="inp-vat" placeholder="원가" title="이 회수금 중 재고에서 빠진 원가 (없으면 0)"
             value="${item.cogs || 0}"
-            data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="cogs">` : ''}
+            data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="cogs">
+          <input type="number" class="inp-vat" placeholder="비용%" title="회수금 대비 추가 비용 % (예: 자사몰 광고비 30%)"
+            value="${item.extraCostPct || 0}"
+            data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="extraCostPct">
+          <div class="income-auto income-net" title="실제 수입 = 회수금 − 부가세 − 원가 − 비용%">${autoNet >= 0 ? '+' : ''}${fmt(autoNet)}</div>` : ''}
           ${!isIncome ? `<label class="inp-cost" title="비용 처리 가능 여부">
             <input type="checkbox" ${isCost ? 'checked' : ''}
               data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="cost">
@@ -2772,12 +2829,17 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
 
   // 컬럼 헤더 (테이블처럼 클릭해서 정렬) — item-row와 grid 정렬 일치
   const colsHtml = items.length === 0 ? '' : `
-    <div class="il-cols ${isIncome && hasDate ? 'income-row' : (hasDate ? 'expense-row' : '')}">
+    <div class="il-cols ${isIncome ? (hasDate ? 'income-row' : 'income-row-nodate') : (hasDate ? 'expense-row' : '')}">
       ${hasDate ? `<span class="il-col ${isActive('date')}" onclick="sortItemList('${accountKey}', '${listType}', 'date')">날짜${colArrow('date')}</span>` : ''}
       <span class="il-col ${isActive('name')}" onclick="sortItemList('${accountKey}', '${listType}', 'name')">명칭${colArrow('name')}</span>
       <span class="il-col ${isActive('amount')}" onclick="sortItemList('${accountKey}', '${listType}', 'amount')">${isIncome ? '회수금' : '금액'}${colArrow('amount')}</span>
-      <span class="il-col ${isActive('vat')}" onclick="sortItemList('${accountKey}', '${listType}', 'vat')">부가세${colArrow('vat')}</span>
-      ${isIncome ? `<span class="il-col il-col-dim" title="이 회수금 중 재고에서 빠진 원가">원가</span>` : `<span class="il-col il-col-dim">비용</span>`}
+      ${isIncome
+        ? `<span class="il-col il-col-dim" title="회수금 × 10% (자동)">부가세</span>
+           <span class="il-col il-col-dim" title="재고에서 빠진 원가">원가</span>
+           <span class="il-col il-col-dim" title="회수금 대비 추가 비용 %">비용%</span>
+           <span class="il-col il-col-dim" title="실제 수입 = 회수금 − 부가세 − 원가 − 비용%">수입</span>`
+        : `<span class="il-col ${isActive('vat')}" onclick="sortItemList('${accountKey}', '${listType}', 'vat')">부가세${colArrow('vat')}</span>
+           <span class="il-col il-col-dim">비용</span>`}
       <span class="il-col il-col-dim"></span>
     </div>
   `;
@@ -2831,6 +2893,26 @@ function attachAccountListeners(accountKey) {
       autoSave();
       // 합계 표시만 가볍게 업데이트 (input 요소는 건드리지 않음)
       updateTotalsOnly(accountKey);
+      // 일회성 수입/월 고정 수입 행의 자동 계산 표시 갱신 (포커스 유지)
+      if ((list === 'income' || list === 'fixedIncome') &&
+          (field === 'amount' || field === 'cogs' || field === 'extraCostPct')) {
+        const item = DATA.accounts[account][list][parseInt(idx)];
+        const row = e.target.closest('.income-row, .income-row-nodate');
+        if (row && item) {
+          const amt = item.amount || 0;
+          const cogs = item.cogs || 0;
+          const pct = item.extraCostPct || 0;
+          const autoVat = Math.round(amt * 0.1);
+          const autoSupply = amt - autoVat;
+          const autoExtraCost = Math.round(amt * pct / 100);
+          const autoNet = autoSupply - cogs - autoExtraCost;
+          const autos = row.querySelectorAll('.income-auto');
+          if (autos[0]) autos[0].textContent = fmt(autoVat);
+          if (autos[1]) {
+            autos[1].textContent = (autoNet >= 0 ? '+' : '') + fmt(autoNet);
+          }
+        }
+      }
     });
     // blur 또는 change 시점에 전체 재렌더 (체크박스 등 선택)
     inp.addEventListener('change', (e) => {
@@ -4355,10 +4437,11 @@ function renderAllTab(containerKey, accountKeys, displayName) {
   const monthStr = `${viewDate.getFullYear()}-${String(viewDate.getMonth() + 1).padStart(2, '0')}`;
   const viewDateStr = `${viewDate.getFullYear()}-${String(viewDate.getMonth() + 1).padStart(2, '0')}-${String(viewDate.getDate()).padStart(2, '0')}`;
   const isToday = viewDateStr === new Date().toISOString().slice(0, 10);
-  let totalBalance = 0, totalFixed = 0, totalFixedVat = 0, totalIncome = 0;
-  let totalFixedIncome = 0;
-  let totalFixedIncomeCogs = 0; // 월 고정 수입에 포함된 원가
-  let totalIncomeCogs = 0; // 일회성 수입에 포함된 원가 (재고에서 빠진 자산)
+  let totalBalance = 0, totalFixed = 0, totalFixedVat = 0;
+  // 일회성 수입 누적
+  let totalIncome = 0, totalIncomeVat = 0, totalIncomeCogs = 0, totalIncomeExtra = 0, totalIncomeNetAccum = 0;
+  // 월 고정 수입 누적
+  let totalFixedIncome = 0, totalFixedIncomeVat = 0, totalFixedIncomeCogs = 0, totalFixedIncomeExtra = 0, totalFixedIncomeNet = 0;
   let totalExpense = 0, totalAds = 0, totalInvest = 0, totalRevenue = 0, totalCogs = 0;
   let totalCostable = 0, totalAllVat = 0;
   let totalInventory = 0;
@@ -4372,9 +4455,15 @@ function renderAllTab(containerKey, accountKeys, displayName) {
     const fCost = acc.fixed.filter(f => f.cost).reduce((s, f) => s + (f.amount || 0) + (f.vat || 0), 0);
     totalFixed += fSum;
     totalFixedVat += fVat;
-    // 월 고정 수입 누적 (회수금 / 원가)
-    totalFixedIncome += (acc.fixedIncome || []).reduce((s, f) => s + (f.amount || 0), 0); // 회수금
-    totalFixedIncomeCogs += (acc.fixedIncome || []).reduce((s, f) => s + (f.cogs || 0), 0); // 원가
+    // 월 고정 수입 누적 (회수금 / 부가세 / 원가 / 부가비용 / 순익)
+    (acc.fixedIncome || []).forEach(f => {
+      const b = incomeItemBreakdown(f);
+      totalFixedIncome += b.amt;       // 회수금
+      totalFixedIncomeVat += b.vat;    // 부가세
+      totalFixedIncomeCogs += b.cogs;  // 원가
+      totalFixedIncomeExtra += b.extraCost; // 부가비용
+      totalFixedIncomeNet += b.net;    // 순익
+    });
 
     const mExp = acc.expenses.filter(e => (e.date || '').startsWith(monthStr));
     const mInv = (acc.investment || []).filter(i => (i.date || '').startsWith(monthStr));
@@ -4394,9 +4483,15 @@ function renderAllTab(containerKey, accountKeys, displayName) {
     totalAds += adsSum;
     totalAllVat += fVat + expVat + invVat + adsVat;
     totalCostable += fCost + expCost + invCost + adsCost;
-    const mIncome = acc.income.filter(i => (i.date || '').startsWith(monthStr));
-    totalIncome += mIncome.reduce((s, i) => s + (i.amount || 0), 0); // 회수금
-    totalIncomeCogs += mIncome.reduce((s, i) => s + (i.cogs || 0), 0); // 원가 (재고에서 빠진 자산)
+    // 일회성 수입 누적 (회수금 / 부가세 / 원가 / 부가비용 / 순익)
+    acc.income.filter(i => (i.date || '').startsWith(monthStr)).forEach(i => {
+      const b = incomeItemBreakdown(i);
+      totalIncome += b.amt;
+      totalIncomeVat += b.vat;
+      totalIncomeCogs += b.cogs;
+      totalIncomeExtra += b.extraCost;
+      totalIncomeNetAccum += b.net;
+    });
 
     const pnl = acc.pnl[monthStr] || {};
     totalRevenue += pnl.revenue || 0;
@@ -4410,16 +4505,15 @@ function renderAllTab(containerKey, accountKeys, displayName) {
     : 0;
   // 총 자산 (현금 + 재고 + 비상금)
   const totalAssetsAll = totalNetAssets + totalEmergency;
-  // 일회성 수입 순익 = 회수금 - 원가 (진짜 새로 들어온 돈)
-  const totalIncomeNet = totalIncome - totalIncomeCogs;
-  // 월 고정 수입 순익 = 회수금 - 원가
-  const totalFixedIncomeNet = totalFixedIncome - totalFixedIncomeCogs;
+  // 일회성 수입 순익 = 회수금 - 부가세 - 원가 - 부가비용 (누적값 그대로 사용)
+  const totalIncomeNet = totalIncomeNetAccum;
+  // 월 고정 수입 순익도 누적값 그대로 (위 forEach에서 이미 합산됨)
   // 순익 = 매출 + 월 고정 수입 순익 + 일회성 수입 순익 − 원가 − 광고비 − 고정비 − 1회성 (제품 투자는 비용 아님)
   const totalProfit = totalRevenue + totalFixedIncomeNet + totalIncomeNet - totalCogs - totalAds - totalFixed - totalExpense;
 
   // 월 고정 순익 = 월 고정 수입 순익 - 월 총 고정비 (음수면 매월 적자)
   const fixedNetIncome = totalFixedIncomeNet - totalFixed;
-  // 월 일회성 순익 = (일회성 수입 회수금 - 원가) - 일회성 지출
+  // 월 일회성 순익 = 일회성 수입 순익 - 일회성 지출
   const oneTimeNetIncome = totalIncomeNet - totalExpense;
 
   // ====== 두 가지 런웨이 시나리오 ======
@@ -4551,7 +4645,7 @@ function renderAllTab(containerKey, accountKeys, displayName) {
       <div class="summary-card income">
         <div class="sc-label">💰 월 일회성 순익</div>
         <div class="sc-value ${oneTimeNetIncome >= 0 ? 'ok' : 'danger'}">${oneTimeNetIncome >= 0 ? '+' : ''}${fmt(oneTimeNetIncome)}</div>
-        <div class="sc-sub">회수금 ${fmt(totalIncome)} − 원가 ${fmt(totalIncomeCogs)} − 지출 ${fmt(totalExpense)}</div>
+        <div class="sc-sub">회수금 ${fmt(totalIncome)} − 부가세 ${fmt(totalIncomeVat)} − 원가 ${fmt(totalIncomeCogs)}${totalIncomeExtra > 0 ? ` − 비용% ${fmt(totalIncomeExtra)}` : ''} − 지출 ${fmt(totalExpense)}</div>
         <div class="sc-sub" style="color:var(--text-dim);">실제 새 자금 = 회수금 − 원가</div>
       </div>
     </div>
