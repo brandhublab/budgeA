@@ -413,19 +413,19 @@
   .item-row.expense-row {
     grid-template-columns: 110px 1.8fr 1fr 0.9fr 46px 36px;
   }
-  /* 일회성 수입 행: 날짜 | 명칭 | 회수금 | 부가세(자동) | 원가 | 비용% | 수입(자동) | 삭제 */
+  /* 일회성 수입 행: 날짜 | 명칭 | 매출 | 부가세(자동) | 원가 | 비용% | 회수금(자동) | 수입(자동) | 삭제 */
   .item-row.income-row {
-    grid-template-columns: 95px 1fr 0.95fr 0.75fr 1fr 0.55fr 1fr 30px;
+    grid-template-columns: 88px 0.9fr 0.85fr 0.65fr 0.85fr 0.45fr 0.85fr 0.85fr 28px;
   }
   .il-cols.income-row {
-    grid-template-columns: 95px 1fr 0.95fr 0.75fr 1fr 0.55fr 1fr 30px;
+    grid-template-columns: 88px 0.9fr 0.85fr 0.65fr 0.85fr 0.45fr 0.85fr 0.85fr 28px;
   }
-  /* 월 고정 수입 행: 명칭 | 회수금 | 부가세(자동) | 원가 | 비용% | 수입(자동) | 삭제 (날짜 없음) */
+  /* 월 고정 수입 행 (날짜 없음) */
   .item-row.income-row-nodate {
-    grid-template-columns: 1fr 0.95fr 0.75fr 1fr 0.55fr 1fr 30px;
+    grid-template-columns: 0.9fr 0.85fr 0.65fr 0.85fr 0.45fr 0.85fr 0.85fr 28px;
   }
   .il-cols.income-row-nodate {
-    grid-template-columns: 1fr 0.95fr 0.75fr 1fr 0.55fr 1fr 30px;
+    grid-template-columns: 0.9fr 0.85fr 0.65fr 0.85fr 0.45fr 0.85fr 0.85fr 28px;
   }
   .income-auto {
     background: var(--bg);
@@ -2377,16 +2377,18 @@ function renderAccountTab(accountKey) {
   const allAdsSum = acc.ads.reduce((s, a) => s + (a.amount || 0), 0);
 
   const monthIncomeItems = acc.income.filter(i => (i.date || '').startsWith(monthStr));
-  const incomeSum = monthIncomeItems.reduce((s, i) => s + (i.amount || 0), 0); // 회수금
+  const incomeSum = monthIncomeItems.reduce((s, i) => s + (i.amount || 0), 0); // 매출
   const incomeVatSum = monthIncomeItems.reduce((s, i) => s + incomeItemBreakdown(i).vat, 0); // 부가세 자동
   const incomeCogsSum = monthIncomeItems.reduce((s, i) => s + (i.cogs || 0), 0); // 원가
   const incomeExtraSum = monthIncomeItems.reduce((s, i) => s + incomeItemBreakdown(i).extraCost, 0); // 부가비용
-  const incomeNetSum = monthIncomeItems.reduce((s, i) => s + incomeItemNet(i), 0); // 순익 (자동)
-  // 월 고정 수입 (매월 반복) — 회수금/부가세/원가/부가비용/순익
-  const fixedIncomeSum = (acc.fixedIncome || []).reduce((s, f) => s + (f.amount || 0), 0);
+  const incomeRecoverySum = monthIncomeItems.reduce((s, i) => s + incomeItemBreakdown(i).recovery, 0); // 회수금
+  const incomeNetSum = monthIncomeItems.reduce((s, i) => s + incomeItemNet(i), 0); // 수입(순익)
+  // 월 고정 수입 - 매출/부가세/원가/부가비용/회수금/수입
+  const fixedIncomeSum = (acc.fixedIncome || []).reduce((s, f) => s + (f.amount || 0), 0); // 매출
   const fixedIncomeVat = (acc.fixedIncome || []).reduce((s, f) => s + incomeItemBreakdown(f).vat, 0);
   const fixedIncomeCogs = (acc.fixedIncome || []).reduce((s, f) => s + (f.cogs || 0), 0);
   const fixedIncomeExtra = (acc.fixedIncome || []).reduce((s, f) => s + incomeItemBreakdown(f).extraCost, 0);
+  const fixedIncomeRecovery = (acc.fixedIncome || []).reduce((s, f) => s + incomeItemBreakdown(f).recovery, 0);
   const fixedIncomeNet = (acc.fixedIncome || []).reduce((s, f) => s + incomeItemNet(f), 0);
 
   const totalCostable = fixedCost + monthExpCost + monthInvestCost + monthAdsCost;
@@ -2482,12 +2484,12 @@ function renderAccountTab(accountKey) {
       <div class="summary-card income">
         <div class="sc-label">📅 월 고정 수입 순익</div>
         <div class="sc-value ${fixedIncomeNet >= 0 ? 'ok' : 'danger'}">${fixedIncomeNet >= 0 ? '+' : ''}${fmt(fixedIncomeNet)}</div>
-        <div class="sc-sub">회수금 ${fmt(fixedIncomeSum)} − 부가세 ${fmt(fixedIncomeVat)} − 원가 ${fmt(fixedIncomeCogs)}${fixedIncomeExtra > 0 ? ` − 비용% ${fmt(fixedIncomeExtra)}` : ''} · 매월 자동 반복</div>
+        <div class="sc-sub">매출 ${fmt(fixedIncomeSum)} · 회수금 ${fmt(fixedIncomeRecovery)}${fixedIncomeCogs > 0 ? ` − 원가 ${fmt(fixedIncomeCogs)}` : ''} · 매월 반복</div>
       </div>
       <div class="summary-card income">
         <div class="sc-label">월 일회성 수입 순익</div>
         <div class="sc-value ${incomeNetSum >= 0 ? 'ok' : 'danger'}">${incomeNetSum >= 0 ? '+' : ''}${fmt(incomeNetSum)}</div>
-        <div class="sc-sub">회수금 ${fmt(incomeSum)} − 부가세 ${fmt(incomeVatSum)} − 원가 ${fmt(incomeCogsSum)}${incomeExtraSum > 0 ? ` − 비용% ${fmt(incomeExtraSum)}` : ''}</div>
+        <div class="sc-sub">매출 ${fmt(incomeSum)} · 회수금 ${fmt(incomeRecoverySum)}${incomeCogsSum > 0 ? ` − 원가 ${fmt(incomeCogsSum)}` : ''}</div>
       </div>
       <div class="summary-card runway">
         <div class="sc-label">⏳ 계좌별 런웨이</div>
@@ -2636,18 +2638,26 @@ function getCurrentMonthKey() {
 }
 
 // 수입 항목 자동 계산 (일회성 수입 + 월 고정 수입 공통)
-// 회수금(amount, 부가세 포함) → 정확한 한국 부가세 공식 적용:
-//   공급가 = 회수금 / 1.1, 부가세 = 회수금 - 공급가 (= 회수금 × 10/110, 약 9.09%)
-// 예: 회수금 400,000원 → 공급가 363,636원 / 부가세 36,364원
+// 입력: amount(매출, 부가세 포함) / cogs(원가) / extraCostPct(비용 %)
+// 자동 계산:
+//   공급가 = 매출 ÷ 1.1
+//   부가세 = 매출 - 공급가  (= 매출 × 10/110, 약 9.09%)
+//   부가비용 = 매출 × 비용%
+//   회수금 = 매출 - 부가세 - 부가비용 = 공급가 - 부가비용  (원가는 제외)
+//   수입(순익) = 회수금 - 원가
+// 예: 매출 400,000 / 비용 30% / 원가 200,000
+//   공급가 363,636 / 부가세 36,364 / 부가비용 120,000
+//   회수금 243,636 / 수입 43,636
 function incomeItemBreakdown(item) {
   const amt = item.amount || 0;
   const cogs = item.cogs || 0;
   const pct = item.extraCostPct || 0;
-  const supply = Math.round(amt / 1.1); // 공급가 = 회수금 ÷ 1.1
-  const vat = amt - supply;             // 부가세 = 회수금 - 공급가
-  const extraCost = Math.round(amt * pct / 100);
-  const net = supply - cogs - extraCost;
-  return { amt, cogs, pct, vat, supply, extraCost, net };
+  const supply = Math.round(amt / 1.1);   // 공급가
+  const vat = amt - supply;                // 부가세
+  const extraCost = Math.round(amt * pct / 100); // 부가비용
+  const recovery = supply - extraCost;     // 회수금 (원가 제외)
+  const net = recovery - cogs;             // 수입(순익) = 회수금 - 원가
+  return { amt, cogs, pct, vat, supply, extraCost, recovery, net };
 }
 function incomeItemNet(item) {
   return incomeItemBreakdown(item).net;
@@ -2789,11 +2799,12 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
     indexed.forEach(item => {
       const idx = item._idx;
       const isCost = item.cost !== false; // 기본 true
-      // 일회성 수입 — 자동 계산 (정확한 한국 부가세: 회수금 ÷ 1.1)
-      let autoVat = 0, autoNet = 0;
+      // 일회성 수입 — 자동 계산 (정확한 한국 부가세 + 회수금 분리)
+      let autoVat = 0, autoRecovery = 0, autoNet = 0;
       if (isIncome) {
         const b = incomeItemBreakdown(item);
         autoVat = b.vat;
+        autoRecovery = b.recovery;
         autoNet = b.net;
       }
       rowsHtml += `
@@ -2803,19 +2814,20 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
           <input type="text" class="inp-name" placeholder="항목명"
             value="${item.name || ''}"
             data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="name">
-          <input type="number" class="inp-amount" placeholder="${isIncome ? '회수금' : '금액'}"
+          <input type="number" class="inp-amount" placeholder="${isIncome ? '매출' : '금액'}"
             value="${item.amount || 0}"
             data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="amount">
-          ${isIncome ? `<div class="income-auto" title="부가세 = 회수금 − (회수금 ÷ 1.1) · 자동">${fmt(autoVat)}</div>` : `<input type="number" class="inp-vat" placeholder="부가세"
+          ${isIncome ? `<div class="income-auto" title="부가세 = 매출 − (매출 ÷ 1.1) · 자동">${fmt(autoVat)}</div>` : `<input type="number" class="inp-vat" placeholder="부가세"
             value="${item.vat || 0}"
             data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="vat">`}
-          ${isIncome ? `<input type="number" class="inp-vat" placeholder="원가" title="이 회수금 중 재고에서 빠진 원가 (없으면 0)"
+          ${isIncome ? `<input type="number" class="inp-vat" placeholder="원가" title="재고에서 빠진 원가 (없으면 0)"
             value="${item.cogs || 0}"
             data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="cogs">
-          <input type="number" class="inp-vat" placeholder="비용%" title="회수금 대비 추가 비용 % (예: 자사몰 광고비 30%)"
+          <input type="number" class="inp-vat" placeholder="비용%" title="매출 대비 추가 비용 % (예: 자사몰 광고비 30%)"
             value="${item.extraCostPct || 0}"
             data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="extraCostPct">
-          <div class="income-auto income-net" title="실제 수입 = 회수금 − 부가세 − 원가 − 비용%">${autoNet >= 0 ? '+' : ''}${fmt(autoNet)}</div>` : ''}
+          <div class="income-auto" title="회수금 = 매출 − 부가세 − 비용 (원가 제외)">${fmt(autoRecovery)}</div>
+          <div class="income-auto income-net" title="수입 = 회수금 − 원가">${autoNet >= 0 ? '+' : ''}${fmt(autoNet)}</div>` : ''}
           ${!isIncome ? `<label class="inp-cost" title="비용 처리 가능 여부">
             <input type="checkbox" ${isCost ? 'checked' : ''}
               data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="cost">
@@ -2856,12 +2868,13 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
     <div class="il-cols ${isIncome ? (hasDate ? 'income-row' : 'income-row-nodate') : (hasDate ? 'expense-row' : '')}">
       ${hasDate ? `<span class="il-col ${isActive('date')}" onclick="sortItemList('${accountKey}', '${listType}', 'date')">날짜${colArrow('date')}</span>` : ''}
       <span class="il-col ${isActive('name')}" onclick="sortItemList('${accountKey}', '${listType}', 'name')">명칭${colArrow('name')}</span>
-      <span class="il-col ${isActive('amount')}" onclick="sortItemList('${accountKey}', '${listType}', 'amount')">${isIncome ? '회수금' : '금액'}${colArrow('amount')}</span>
+      <span class="il-col ${isActive('amount')}" onclick="sortItemList('${accountKey}', '${listType}', 'amount')">${isIncome ? '매출' : '금액'}${colArrow('amount')}</span>
       ${isIncome
-        ? `<span class="il-col il-col-dim" title="부가세 = 회수금 − (회수금 ÷ 1.1) · 자동">부가세</span>
+        ? `<span class="il-col il-col-dim" title="부가세 = 매출 − (매출 ÷ 1.1) · 자동">부가세</span>
            <span class="il-col il-col-dim" title="재고에서 빠진 원가">원가</span>
-           <span class="il-col il-col-dim" title="회수금 대비 추가 비용 %">비용%</span>
-           <span class="il-col il-col-dim" title="실제 수입 = 회수금 − 부가세 − 원가 − 비용%">수입</span>`
+           <span class="il-col il-col-dim" title="매출 대비 추가 비용 %">비용%</span>
+           <span class="il-col il-col-dim" title="회수금 = 매출 − 부가세 − 비용 (원가 제외)">회수금</span>
+           <span class="il-col il-col-dim" title="수입 = 회수금 − 원가">수입</span>`
         : `<span class="il-col ${isActive('vat')}" onclick="sortItemList('${accountKey}', '${listType}', 'vat')">부가세${colArrow('vat')}</span>
            <span class="il-col il-col-dim">비용</span>`}
       <span class="il-col il-col-dim"></span>
@@ -2941,8 +2954,10 @@ function attachAccountListeners(accountKey) {
         if (row && item) {
           const b = incomeItemBreakdown(item);
           const autos = row.querySelectorAll('.income-auto');
+          // [0]=부가세, [1]=회수금, [2]=수입
           if (autos[0]) autos[0].textContent = fmt(b.vat);
-          if (autos[1]) autos[1].textContent = (b.net >= 0 ? '+' : '') + fmt(b.net);
+          if (autos[1]) autos[1].textContent = fmt(b.recovery);
+          if (autos[2]) autos[2].textContent = (b.net >= 0 ? '+' : '') + fmt(b.net);
         }
       }
     });
@@ -4471,9 +4486,9 @@ function renderAllTab(containerKey, accountKeys, displayName) {
   const isToday = viewDateStr === new Date().toISOString().slice(0, 10);
   let totalBalance = 0, totalFixed = 0, totalFixedVat = 0;
   // 일회성 수입 누적
-  let totalIncome = 0, totalIncomeVat = 0, totalIncomeCogs = 0, totalIncomeExtra = 0, totalIncomeNetAccum = 0;
+  let totalIncome = 0, totalIncomeVat = 0, totalIncomeCogs = 0, totalIncomeExtra = 0, totalIncomeRecovery = 0, totalIncomeNetAccum = 0;
   // 월 고정 수입 누적
-  let totalFixedIncome = 0, totalFixedIncomeVat = 0, totalFixedIncomeCogs = 0, totalFixedIncomeExtra = 0, totalFixedIncomeNet = 0;
+  let totalFixedIncome = 0, totalFixedIncomeVat = 0, totalFixedIncomeCogs = 0, totalFixedIncomeExtra = 0, totalFixedIncomeRecovery = 0, totalFixedIncomeNet = 0;
   let totalExpense = 0, totalAds = 0, totalInvest = 0, totalRevenue = 0, totalCogs = 0;
   let totalCostable = 0, totalAllVat = 0;
   let totalInventory = 0;
@@ -4487,14 +4502,15 @@ function renderAllTab(containerKey, accountKeys, displayName) {
     const fCost = acc.fixed.filter(f => f.cost).reduce((s, f) => s + (f.amount || 0) + (f.vat || 0), 0);
     totalFixed += fSum;
     totalFixedVat += fVat;
-    // 월 고정 수입 누적 (회수금 / 부가세 / 원가 / 부가비용 / 순익)
+    // 월 고정 수입 누적 (매출 / 부가세 / 원가 / 부가비용 / 회수금 / 순익)
     (acc.fixedIncome || []).forEach(f => {
       const b = incomeItemBreakdown(f);
-      totalFixedIncome += b.amt;       // 회수금
-      totalFixedIncomeVat += b.vat;    // 부가세
-      totalFixedIncomeCogs += b.cogs;  // 원가
+      totalFixedIncome += b.amt;            // 매출
+      totalFixedIncomeVat += b.vat;         // 부가세
+      totalFixedIncomeCogs += b.cogs;       // 원가
       totalFixedIncomeExtra += b.extraCost; // 부가비용
-      totalFixedIncomeNet += b.net;    // 순익
+      totalFixedIncomeRecovery += b.recovery; // 회수금 (원가 제외)
+      totalFixedIncomeNet += b.net;         // 수입(순익)
     });
 
     const mExp = acc.expenses.filter(e => (e.date || '').startsWith(monthStr));
@@ -4515,13 +4531,14 @@ function renderAllTab(containerKey, accountKeys, displayName) {
     totalAds += adsSum;
     totalAllVat += fVat + expVat + invVat + adsVat;
     totalCostable += fCost + expCost + invCost + adsCost;
-    // 일회성 수입 누적 (회수금 / 부가세 / 원가 / 부가비용 / 순익)
+    // 일회성 수입 누적 (매출 / 부가세 / 원가 / 부가비용 / 회수금 / 순익)
     acc.income.filter(i => (i.date || '').startsWith(monthStr)).forEach(i => {
       const b = incomeItemBreakdown(i);
       totalIncome += b.amt;
       totalIncomeVat += b.vat;
       totalIncomeCogs += b.cogs;
       totalIncomeExtra += b.extraCost;
+      totalIncomeRecovery += b.recovery;
       totalIncomeNetAccum += b.net;
     });
 
@@ -4657,6 +4674,25 @@ function renderAllTab(containerKey, accountKeys, displayName) {
     </div>
 
     <div class="summary-grid">
+      <div class="summary-card income">
+        <div class="sc-label">💵 월 회수금 (전체)</div>
+        <div class="sc-value ok">${fmt(totalFixedIncomeRecovery + totalIncomeRecovery)}</div>
+        <div class="sc-sub">고정 ${fmt(totalFixedIncomeRecovery)} + 일회성 ${fmt(totalIncomeRecovery)}</div>
+        <div class="sc-sub" style="color:var(--text-dim);">매출 − 부가세 − 비용 (원가 제외)</div>
+      </div>
+      <div class="summary-card income">
+        <div class="sc-label">📅 월 고정 회수금</div>
+        <div class="sc-value ok">${fmt(totalFixedIncomeRecovery)}</div>
+        <div class="sc-sub">매출 ${fmt(totalFixedIncome)} − 부가세 ${fmt(totalFixedIncomeVat)}${totalFixedIncomeExtra > 0 ? ` − 비용 ${fmt(totalFixedIncomeExtra)}` : ''}</div>
+      </div>
+      <div class="summary-card income">
+        <div class="sc-label">💰 월 일회성 회수금</div>
+        <div class="sc-value ok">${fmt(totalIncomeRecovery)}</div>
+        <div class="sc-sub">매출 ${fmt(totalIncome)} − 부가세 ${fmt(totalIncomeVat)}${totalIncomeExtra > 0 ? ` − 비용 ${fmt(totalIncomeExtra)}` : ''}</div>
+      </div>
+    </div>
+
+    <div class="summary-grid">
       <div class="summary-card fixed">
         <div class="sc-label">🔒 월 총 고정비</div>
         <div class="sc-value danger">${fmt(totalFixed)}</div>
@@ -4666,8 +4702,8 @@ function renderAllTab(containerKey, accountKeys, displayName) {
         <div class="sc-label">📅 월 총 고정 순익</div>
         <div class="sc-value ${fixedNetIncome >= 0 ? 'ok' : 'danger'}">${fixedNetIncome >= 0 ? '+' : ''}${fmt(fixedNetIncome)}</div>
         <div class="sc-sub">${totalFixedIncomeCogs > 0
-          ? `회수금 ${fmt(totalFixedIncome)} − 원가 ${fmt(totalFixedIncomeCogs)} − 고정비 ${fmt(totalFixed)}`
-          : `고정 수입 ${fmt(totalFixedIncome)} − 고정비 ${fmt(totalFixed)}`}</div>
+          ? `매출 ${fmt(totalFixedIncome)} · 회수금 ${fmt(totalFixedIncomeRecovery)} − 원가 ${fmt(totalFixedIncomeCogs)} − 고정비 ${fmt(totalFixed)}`
+          : `매출 ${fmt(totalFixedIncome)} · 회수금 ${fmt(totalFixedIncomeRecovery)} − 고정비 ${fmt(totalFixed)}`}</div>
       </div>
       <div class="summary-card fixed">
         <div class="sc-label">💸 월 일회성 지출</div>
@@ -4677,7 +4713,7 @@ function renderAllTab(containerKey, accountKeys, displayName) {
       <div class="summary-card income">
         <div class="sc-label">💰 월 일회성 순익</div>
         <div class="sc-value ${oneTimeNetIncome >= 0 ? 'ok' : 'danger'}">${oneTimeNetIncome >= 0 ? '+' : ''}${fmt(oneTimeNetIncome)}</div>
-        <div class="sc-sub">회수금 ${fmt(totalIncome)} − 부가세 ${fmt(totalIncomeVat)} − 원가 ${fmt(totalIncomeCogs)}${totalIncomeExtra > 0 ? ` − 비용% ${fmt(totalIncomeExtra)}` : ''} − 지출 ${fmt(totalExpense)}</div>
+        <div class="sc-sub">매출 ${fmt(totalIncome)} · 회수금 ${fmt(totalIncomeRecovery)}${totalIncomeCogs > 0 ? ` − 원가 ${fmt(totalIncomeCogs)}` : ''} − 지출 ${fmt(totalExpense)}</div>
         <div class="sc-sub" style="color:var(--text-dim);">실제 새 자금 = 회수금 − 원가</div>
       </div>
     </div>
