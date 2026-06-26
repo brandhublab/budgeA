@@ -2353,7 +2353,11 @@ function renderAccountTab(accountKey) {
   const fixedCost = acc.fixed.filter(f => f.cost).reduce((s, f) => s + (f.amount || 0), 0);
   const fixedCostVat = acc.fixed.filter(f => f.cost).reduce((s, f) => s + (f.vat || 0), 0);
 
-  const monthStr = getCurrentMonthKey();
+  // 조회 날짜 — 첫 페이지와 공유 (allTabSelectedDate). null이면 오늘
+  const viewDate = allTabSelectedDate ? new Date(allTabSelectedDate) : new Date();
+  const monthStr = `${viewDate.getFullYear()}-${String(viewDate.getMonth() + 1).padStart(2, '0')}`;
+  const viewDateStr = `${viewDate.getFullYear()}-${String(viewDate.getMonth() + 1).padStart(2, '0')}-${String(viewDate.getDate()).padStart(2, '0')}`;
+  const isToday = viewDateStr === new Date().toISOString().slice(0, 10);
   const monthExpenses = acc.expenses.filter(e => (e.date || '').startsWith(monthStr));
   const monthInvest = (acc.investment || []).filter(i => (i.date || '').startsWith(monthStr));
   const monthAds = acc.ads.filter(a => (a.date || '').startsWith(monthStr));
@@ -2439,6 +2443,14 @@ function renderAccountTab(accountKey) {
   }
 
   container.innerHTML = `
+    <div style="display:flex; align-items:center; gap:10px; padding:10px 14px; background:var(--surface); border:1px solid var(--line); border-radius:6px; margin-bottom:14px; flex-wrap:wrap;">
+      <span style="font-size:0.82rem; color:var(--text-mid); font-weight:600;">📅 조회 날짜</span>
+      <input type="date" id="acctDate-${accountKey}" value="${viewDateStr}"
+        style="background:var(--bg); border:1px solid var(--line); color:var(--text); padding:6px 10px; font-family:inherit; font-size:0.9rem; border-radius:4px;">
+      <span style="font-size:0.78rem; color:var(--text-dim);">→ <strong style="color:var(--accent);">${monthStr}</strong> 데이터${isToday ? ' · 오늘' : ''}</span>
+      ${!isToday ? `<button id="acctDateReset-${accountKey}" style="background:transparent; border:1px solid var(--line); color:var(--text-mid); padding:5px 10px; font-family:inherit; font-size:0.78rem; cursor:pointer; border-radius:4px;">↺ 오늘로</button>` : ''}
+      <span style="font-size:0.72rem; color:var(--text-dim); margin-left:auto;">전체 화면과 동기화</span>
+    </div>
     <div class="summary-grid">
       <div class="summary-card ${accountKey} ${isBaseAccount(accountKey) ? '' : 'custom-account'}">
         <div class="sc-label">${name} · 현금 잔고</div>
@@ -2624,20 +2636,36 @@ function getCurrentMonthKey() {
 }
 
 // 수입 항목 자동 계산 (일회성 수입 + 월 고정 수입 공통)
-// 회수금(amount, 부가세 포함) → 부가세 10% 자동 차감 → 공급가 → 원가/부가비용 차감 → 순익
-// 사용자 표현 그대로: 회수금 × 10% = 부가세, 회수금 × 90% = 공급가
+// 회수금(amount, 부가세 포함) → 정확한 한국 부가세 공식 적용:
+//   공급가 = 회수금 / 1.1, 부가세 = 회수금 - 공급가 (= 회수금 × 10/110, 약 9.09%)
+// 예: 회수금 400,000원 → 공급가 363,636원 / 부가세 36,364원
 function incomeItemBreakdown(item) {
   const amt = item.amount || 0;
   const cogs = item.cogs || 0;
   const pct = item.extraCostPct || 0;
-  const vat = Math.round(amt * 0.1);
-  const supply = amt - vat;
+  const supply = Math.round(amt / 1.1); // 공급가 = 회수금 ÷ 1.1
+  const vat = amt - supply;             // 부가세 = 회수금 - 공급가
   const extraCost = Math.round(amt * pct / 100);
   const net = supply - cogs - extraCost;
   return { amt, cogs, pct, vat, supply, extraCost, net };
 }
 function incomeItemNet(item) {
   return incomeItemBreakdown(item).net;
+}
+
+// 조회 날짜 변경 시 모든 관련 탭 갱신 (첫 페이지, 계좌 탭, composite)
+// allTabSelectedDate가 바뀌면 어디서 트리거됐든 모든 화면이 같은 월을 봐야 함
+function syncDateView() {
+  try { renderAllTab(); } catch (e) { console.warn('renderAllTab:', e); }
+  getAccountKeys().forEach(k => {
+    try { renderAccountTab(k); } catch (e) { console.warn('renderAccountTab', k, e); }
+  });
+  // composite 탭들도 갱신
+  if (Array.isArray(DATA.composites)) {
+    DATA.composites.forEach(c => {
+      try { renderAllTab(c.key, c.accountKeys || [], c.name); } catch (e) { console.warn('composite', c.key, e); }
+    });
+  }
 }
 
 function renderInventorySection(accountKey) {
@@ -2761,16 +2789,12 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
     indexed.forEach(item => {
       const idx = item._idx;
       const isCost = item.cost !== false; // 기본 true
-      // 일회성 수입 — 자동 계산 (사용자 표현 그대로: 회수금 × 10% = 부가세)
-      let autoVat = 0, autoSupply = 0, autoExtraCost = 0, autoNet = 0;
+      // 일회성 수입 — 자동 계산 (정확한 한국 부가세: 회수금 ÷ 1.1)
+      let autoVat = 0, autoNet = 0;
       if (isIncome) {
-        const amt = item.amount || 0;
-        const cogs = item.cogs || 0;
-        const pct = item.extraCostPct || 0;
-        autoVat = Math.round(amt * 0.1);
-        autoSupply = amt - autoVat;
-        autoExtraCost = Math.round(amt * pct / 100);
-        autoNet = autoSupply - cogs - autoExtraCost;
+        const b = incomeItemBreakdown(item);
+        autoVat = b.vat;
+        autoNet = b.net;
       }
       rowsHtml += `
         <div class="item-row ${isIncome ? (hasDate ? 'income-row' : 'income-row-nodate') : (hasDate ? 'expense-row' : '')}">
@@ -2782,7 +2806,7 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
           <input type="number" class="inp-amount" placeholder="${isIncome ? '회수금' : '금액'}"
             value="${item.amount || 0}"
             data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="amount">
-          ${isIncome ? `<div class="income-auto" title="회수금 × 10% (자동)">${fmt(autoVat)}</div>` : `<input type="number" class="inp-vat" placeholder="부가세"
+          ${isIncome ? `<div class="income-auto" title="부가세 = 회수금 − (회수금 ÷ 1.1) · 자동">${fmt(autoVat)}</div>` : `<input type="number" class="inp-vat" placeholder="부가세"
             value="${item.vat || 0}"
             data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="vat">`}
           ${isIncome ? `<input type="number" class="inp-vat" placeholder="원가" title="이 회수금 중 재고에서 빠진 원가 (없으면 0)"
@@ -2834,7 +2858,7 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
       <span class="il-col ${isActive('name')}" onclick="sortItemList('${accountKey}', '${listType}', 'name')">명칭${colArrow('name')}</span>
       <span class="il-col ${isActive('amount')}" onclick="sortItemList('${accountKey}', '${listType}', 'amount')">${isIncome ? '회수금' : '금액'}${colArrow('amount')}</span>
       ${isIncome
-        ? `<span class="il-col il-col-dim" title="회수금 × 10% (자동)">부가세</span>
+        ? `<span class="il-col il-col-dim" title="부가세 = 회수금 − (회수금 ÷ 1.1) · 자동">부가세</span>
            <span class="il-col il-col-dim" title="재고에서 빠진 원가">원가</span>
            <span class="il-col il-col-dim" title="회수금 대비 추가 비용 %">비용%</span>
            <span class="il-col il-col-dim" title="실제 수입 = 회수금 − 부가세 − 원가 − 비용%">수입</span>`
@@ -2862,6 +2886,22 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
 
 function attachAccountListeners(accountKey) {
   const container = document.querySelector(`[data-tab-content="${accountKey}"]`);
+
+  // 조회 날짜 선택기 — 어디서 바꿔도 모든 탭(첫 페이지+모든 계좌)이 동기화됨
+  const dateInput = container.querySelector(`#acctDate-${accountKey}`);
+  if (dateInput) {
+    dateInput.addEventListener('change', (e) => {
+      allTabSelectedDate = e.target.value || null;
+      syncDateView();
+    });
+  }
+  const resetBtn = container.querySelector(`#acctDateReset-${accountKey}`);
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      allTabSelectedDate = null;
+      syncDateView();
+    });
+  }
 
   // 잔고 입력
   const balInput = document.getElementById(`bal-input-${accountKey}`);
@@ -2899,18 +2939,10 @@ function attachAccountListeners(accountKey) {
         const item = DATA.accounts[account][list][parseInt(idx)];
         const row = e.target.closest('.income-row, .income-row-nodate');
         if (row && item) {
-          const amt = item.amount || 0;
-          const cogs = item.cogs || 0;
-          const pct = item.extraCostPct || 0;
-          const autoVat = Math.round(amt * 0.1);
-          const autoSupply = amt - autoVat;
-          const autoExtraCost = Math.round(amt * pct / 100);
-          const autoNet = autoSupply - cogs - autoExtraCost;
+          const b = incomeItemBreakdown(item);
           const autos = row.querySelectorAll('.income-auto');
-          if (autos[0]) autos[0].textContent = fmt(autoVat);
-          if (autos[1]) {
-            autos[1].textContent = (autoNet >= 0 ? '+' : '') + fmt(autoNet);
-          }
+          if (autos[0]) autos[0].textContent = fmt(b.vat);
+          if (autos[1]) autos[1].textContent = (b.net >= 0 ? '+' : '') + fmt(b.net);
         }
       }
     });
@@ -4813,14 +4845,14 @@ function renderAllTab(containerKey, accountKeys, displayName) {
   if (dateInput) {
     dateInput.addEventListener('change', (e) => {
       allTabSelectedDate = e.target.value || null;
-      renderAllTab(containerKey, accountKeys, displayName);
+      syncDateView();
     });
   }
   const resetBtn = container.querySelector('#allTabDateReset');
   if (resetBtn) {
     resetBtn.addEventListener('click', () => {
       allTabSelectedDate = null;
-      renderAllTab(containerKey, accountKeys, displayName);
+      syncDateView();
     });
   }
 }
