@@ -1563,7 +1563,7 @@ function computeRunway() {
     totalFixed += (acc.fixed || []).reduce((s, f) => s + (f.amount || 0), 0);
     const mIncome = (acc.income || []).filter(i => (i.date || '').startsWith(monthStr));
     totalIncome += mIncome.reduce((s, i) => s + ((i.amount || 0) - (i.cogs || 0)), 0); // 순익만 반영
-    totalFixedIncome += (acc.fixedIncome || []).reduce((s, f) => s + (f.amount || 0), 0);
+    totalFixedIncome += (acc.fixedIncome || []).reduce((s, f) => s + ((f.amount || 0) - (f.cogs || 0)), 0); // 고정 수입도 순익만
   });
   const netBurn = totalFixed - totalFixedIncome - totalIncome;
   const r = { totalBalance, netBurn };
@@ -2279,7 +2279,12 @@ function ensureIncomeDates() {
 }
 
 // PnL 월 선택 상태 (계좌별) — 화면 상태일 뿐 DATA에는 저장하지 않음
+// PnL 월 선택 상태 (계좌별) — 화면 상태일 뿐 DATA에는 저장하지 않음
 const pnlSelectedMonth = {};
+
+// 전체 탭 조회 날짜 — 기본은 오늘, 사용자가 변경 가능
+// 화면 상태이며 DATA에는 저장하지 않음
+let allTabSelectedDate = null; // null이면 오늘 사용
 
 // 항목 리스트 정렬 상태: { 'accountKey:listType': { by: 'name'|'amount'|'vat'|'date', dir: 'asc'|'desc' } }
 // 사용자가 어떤 기준으로 정렬했는지 기억. 표시 전용 — 실제 DATA 배열은 입력 순서 그대로 유지.
@@ -2350,8 +2355,12 @@ function renderAccountTab(accountKey) {
   const incomeSum = monthIncomeItems.reduce((s, i) => s + (i.amount || 0), 0); // 회수금
   const incomeCogsSum = monthIncomeItems.reduce((s, i) => s + (i.cogs || 0), 0); // 원가
   const incomeNetSum = incomeSum - incomeCogsSum; // 순익
-  // 월 고정 수입 (매월 반복) — 한 번 등록하면 매월 자동 집계
+  // 월 고정 수입 (매월 반복) — 회수금 합계
   const fixedIncomeSum = (acc.fixedIncome || []).reduce((s, f) => s + (f.amount || 0), 0);
+  // 월 고정 수입 원가 (있으면 차감)
+  const fixedIncomeCogs = (acc.fixedIncome || []).reduce((s, f) => s + (f.cogs || 0), 0);
+  // 월 고정 수입 순익 = 회수금 - 원가
+  const fixedIncomeNet = fixedIncomeSum - fixedIncomeCogs;
 
   const totalCostable = fixedCost + monthExpCost + monthInvestCost + monthAdsCost;
   const totalVat = fixedVat + monthExpVat + monthInvestVat + monthAdsVat;
@@ -2367,8 +2376,8 @@ function renderAccountTab(accountKey) {
   const remaining = netAssets - allExpSum - allAdsSum;
 
   const pnl = acc.pnl[monthStr] || { revenue: 0, cogs: 0 };
-  // 순익 = 매출 + 월 고정 수입 + 일회성 수입 순익(원가차감) − 원가 − 광고비 − 고정비 − 1회성 지출
-  const pnlProfit = (pnl.revenue || 0) + fixedIncomeSum + incomeNetSum - (pnl.cogs || 0) - monthAdsSum - fixedSum - monthExpSum;
+  // 순익 = 매출 + 월 고정 수입 순익(원가차감) + 일회성 수입 순익(원가차감) − 원가 − 광고비 − 고정비 − 1회성 지출
+  const pnlProfit = (pnl.revenue || 0) + fixedIncomeNet + incomeNetSum - (pnl.cogs || 0) - monthAdsSum - fixedSum - monthExpSum;
 
   // PnL 블록은 사용자가 드롭다운에서 선택한 월을 따로 사용
   const pnlMonth = pnlSelectedMonth[accountKey] || monthStr;
@@ -2383,12 +2392,12 @@ function renderAccountTab(accountKey) {
   const pnlIncomeSum = pnlMonthIncomeItems.reduce((s, i) => s + (i.amount || 0), 0); // 회수금
   const pnlIncomeCogsSum = pnlMonthIncomeItems.reduce((s, i) => s + (i.cogs || 0), 0); // 원가
   const pnlIncomeNetSum = pnlIncomeSum - pnlIncomeCogsSum; // 순익
-  // 월 고정 수입은 모든 월에 동일하게 적용 (fixedIncomeSum 사용)
-  // 순익 = 매출 + 월 고정 수입 + 일회성 수입 순익(원가차감) − 원가 − 광고비 − 고정비 − 1회성 지출
-  const pnlBlockProfit = (pnlBlock.revenue || 0) + fixedIncomeSum + pnlIncomeNetSum - (pnlBlock.cogs || 0) - pnlAdsSum - fixedSum - pnlExpSum;
+  // 월 고정 수입은 모든 월에 동일하게 적용 (fixedIncomeNet 사용)
+  // 순익 = 매출 + 월 고정 수입 순익 + 일회성 수입 순익(원가차감) − 원가 − 광고비 − 고정비 − 1회성 지출
+  const pnlBlockProfit = (pnlBlock.revenue || 0) + fixedIncomeNet + pnlIncomeNetSum - (pnlBlock.cogs || 0) - pnlAdsSum - fixedSum - pnlExpSum;
 
-  // 계좌별 런웨이: 현금 잔고 / (월 고정비 - 월 고정 수입 - 일회성 수입 순익)
-  const accNetBurn = fixedSum - fixedIncomeSum - incomeNetSum;
+  // 계좌별 런웨이: 현금 잔고 / (월 고정비 - 월 고정 수입 순익 - 일회성 수입 순익)
+  const accNetBurn = fixedSum - fixedIncomeNet - incomeNetSum;
   let accRunwayText, accRunwayCls, accRunwayEnd;
   if (accNetBurn <= 0) {
     accRunwayText = '∞';
@@ -2434,9 +2443,9 @@ function renderAccountTab(accountKey) {
         <div class="sc-sub">+ 부가세 ${fmt(fixedVat)}</div>
       </div>
       <div class="summary-card income">
-        <div class="sc-label">📅 월 고정 수입</div>
-        <div class="sc-value ok">${fmt(fixedIncomeSum)}</div>
-        <div class="sc-sub">매월 자동 반복 (${(acc.fixedIncome || []).length}건)</div>
+        <div class="sc-label">📅 월 고정 수입 순익</div>
+        <div class="sc-value ${fixedIncomeNet >= 0 ? 'ok' : 'danger'}">${fixedIncomeNet >= 0 ? '+' : ''}${fmt(fixedIncomeNet)}</div>
+        <div class="sc-sub">회수금 ${fmt(fixedIncomeSum)} − 원가 ${fmt(fixedIncomeCogs)} · 매월 자동 반복</div>
       </div>
       <div class="summary-card income">
         <div class="sc-label">월 일회성 수입 순익</div>
@@ -2471,11 +2480,11 @@ function renderAccountTab(accountKey) {
     ${renderInventorySection(accountKey)}
 
     ${renderItemList(accountKey, 'fixed', '🔒 월 고정비', '고정비', false)}
+    ${renderItemList(accountKey, 'expenses', '💸 월 1회성 지출 (비용 · 없어지는 돈)', '지출', true)}
     ${renderItemList(accountKey, 'fixedIncome', '📅 월 고정 수입 (매월 자동 반복)', '고정수입', false, true)}
-    ${renderItemList(accountKey, 'expenses', '💸 1회성 지출 (비용 · 없어지는 돈)', '지출', true)}
+    ${renderItemList(accountKey, 'income', '💰 월 일회성 수입', '수입', true, true)}
     ${renderItemList(accountKey, 'investment', '💎 제품 투자 (자산 · 재고로 남는 돈)', '제품투자', true)}
     ${renderItemList(accountKey, 'ads', '📢 광고비 (일별)', '광고비', true)}
-    ${renderItemList(accountKey, 'income', '💰 월 일회성 수입', '수입', true, true)}
 
     <!-- 월별 요약 토글 -->
     <div class="breakdown">
@@ -2534,7 +2543,9 @@ function renderAccountTab(accountKey) {
       </div>
       <div class="pnl-breakdown">
         <div class="pnl-bd-row"><span>매출</span><span>+${fmt(pnlBlock.revenue || 0)}</span></div>
-        <div class="pnl-bd-row"><span>월 고정 수입</span><span style="color:var(--ok);">+${fmt(fixedIncomeSum)}</span></div>
+        <div class="pnl-bd-row"><span>월 고정 회수금</span><span style="color:var(--ok);">+${fmt(fixedIncomeSum)}</span></div>
+        ${fixedIncomeCogs > 0 ? `<div class="pnl-bd-row" style="color: var(--text-dim); font-size: 0.75rem;"><span>└ 월 고정 원가</span><span>−${fmt(fixedIncomeCogs)}</span></div>
+        <div class="pnl-bd-row" style="font-size: 0.85rem;"><span>= 월 고정 수입 순익</span><span style="color:var(--ok);">+${fmt(fixedIncomeNet)}</span></div>` : ''}
         <div class="pnl-bd-row"><span>일회성 회수금 (해당월)</span><span style="color:var(--ok);">+${fmt(pnlIncomeSum)}</span></div>
         <div class="pnl-bd-row" style="color: var(--text-dim); font-size: 0.75rem;"><span>└ 일회성 원가 (재고 차감)</span><span>−${fmt(pnlIncomeCogsSum)}</span></div>
         <div class="pnl-bd-row" style="font-size: 0.85rem;"><span>= 일회성 수입 순익</span><span style="color:var(--ok);">+${fmt(pnlIncomeNetSum)}</span></div>
@@ -4339,9 +4350,14 @@ function renderAllTab(containerKey, accountKeys, displayName) {
   const container = document.querySelector(`[data-tab-content="${containerKey}"]`);
   if (!container) return;
 
-  const monthStr = getCurrentMonthKey();
+  // 조회 날짜 = 사용자가 선택한 날짜 (없으면 오늘)
+  const viewDate = allTabSelectedDate ? new Date(allTabSelectedDate) : new Date();
+  const monthStr = `${viewDate.getFullYear()}-${String(viewDate.getMonth() + 1).padStart(2, '0')}`;
+  const viewDateStr = `${viewDate.getFullYear()}-${String(viewDate.getMonth() + 1).padStart(2, '0')}-${String(viewDate.getDate()).padStart(2, '0')}`;
+  const isToday = viewDateStr === new Date().toISOString().slice(0, 10);
   let totalBalance = 0, totalFixed = 0, totalFixedVat = 0, totalIncome = 0;
   let totalFixedIncome = 0;
+  let totalFixedIncomeCogs = 0; // 월 고정 수입에 포함된 원가
   let totalIncomeCogs = 0; // 일회성 수입에 포함된 원가 (재고에서 빠진 자산)
   let totalExpense = 0, totalAds = 0, totalInvest = 0, totalRevenue = 0, totalCogs = 0;
   let totalCostable = 0, totalAllVat = 0;
@@ -4356,8 +4372,9 @@ function renderAllTab(containerKey, accountKeys, displayName) {
     const fCost = acc.fixed.filter(f => f.cost).reduce((s, f) => s + (f.amount || 0) + (f.vat || 0), 0);
     totalFixed += fSum;
     totalFixedVat += fVat;
-    // 월 고정 수입 누적
-    totalFixedIncome += (acc.fixedIncome || []).reduce((s, f) => s + (f.amount || 0), 0);
+    // 월 고정 수입 누적 (회수금 / 원가)
+    totalFixedIncome += (acc.fixedIncome || []).reduce((s, f) => s + (f.amount || 0), 0); // 회수금
+    totalFixedIncomeCogs += (acc.fixedIncome || []).reduce((s, f) => s + (f.cogs || 0), 0); // 원가
 
     const mExp = acc.expenses.filter(e => (e.date || '').startsWith(monthStr));
     const mInv = (acc.investment || []).filter(i => (i.date || '').startsWith(monthStr));
@@ -4395,11 +4412,13 @@ function renderAllTab(containerKey, accountKeys, displayName) {
   const totalAssetsAll = totalNetAssets + totalEmergency;
   // 일회성 수입 순익 = 회수금 - 원가 (진짜 새로 들어온 돈)
   const totalIncomeNet = totalIncome - totalIncomeCogs;
-  // 순익 = 매출 + 월 고정 수입 + 일회성 수입 순익 − 원가 − 광고비 − 고정비 − 1회성 (제품 투자는 비용 아님)
-  const totalProfit = totalRevenue + totalFixedIncome + totalIncomeNet - totalCogs - totalAds - totalFixed - totalExpense;
+  // 월 고정 수입 순익 = 회수금 - 원가
+  const totalFixedIncomeNet = totalFixedIncome - totalFixedIncomeCogs;
+  // 순익 = 매출 + 월 고정 수입 순익 + 일회성 수입 순익 − 원가 − 광고비 − 고정비 − 1회성 (제품 투자는 비용 아님)
+  const totalProfit = totalRevenue + totalFixedIncomeNet + totalIncomeNet - totalCogs - totalAds - totalFixed - totalExpense;
 
-  // 월 고정 순익 = 월 고정 수입 - 월 총 고정비 (음수면 매월 적자)
-  const fixedNetIncome = totalFixedIncome - totalFixed;
+  // 월 고정 순익 = 월 고정 수입 순익 - 월 총 고정비 (음수면 매월 적자)
+  const fixedNetIncome = totalFixedIncomeNet - totalFixed;
   // 월 일회성 순익 = (일회성 수입 회수금 - 원가) - 일회성 지출
   const oneTimeNetIncome = totalIncomeNet - totalExpense;
 
@@ -4426,7 +4445,7 @@ function renderAllTab(containerKey, accountKeys, displayName) {
   // B) 잔고에 일회성 순익(1회) 반영 + 매월 고정 순지출(고정비 - 고정수입)로 소진
   // 일회성은 반복 가정 X — 이번 달 한 번 잔고에 더하거나 빼고, 그 다음부터 고정 순지출만 매월
   const bBalance = totalBalance + oneTimeNetIncome; // 잔고 ± 일회성 순익
-  const bBurn = totalFixed - totalFixedIncome;       // 매월 고정 순지출
+  const bBurn = totalFixed - totalFixedIncomeNet;    // 매월 고정 순지출 (고정 수입 순익 기준)
   let fullRunway = {};
   if (bBurn <= 0) {
     fullRunway = { infinite: true, text: '∞', cls: 'ok', sub: '고정 수입이 고정비 이상 · 소진 시점 없음' };
@@ -4444,10 +4463,40 @@ function renderAllTab(containerKey, accountKeys, displayName) {
     };
   }
 
+  // C) 재투자 안 함 — 회수금 전체를 자금으로 반영 (원가 차감 X)
+  // AROPHIL 재고 청산 같이 "더 이상 재투자 안 한다" 시나리오. 원가는 다시 안 사니까 회수금 전체가 자금.
+  // 잔고 = 기존 잔고 + (일회성 회수금 - 일회성 지출)
+  // 월 순지출 = 고정비 - 고정 회수금
+  const cBalance = totalBalance + totalIncome - totalExpense; // 잔고 + 일회성 회수금 - 일회성 지출
+  const cBurn = totalFixed - totalFixedIncome;                 // 매월 고정비 - 고정 회수금
+  let reinvestRunway = {};
+  if (cBurn <= 0) {
+    reinvestRunway = { infinite: true, text: '∞', cls: 'ok', sub: '고정 회수금이 고정비 이상 · 소진 시점 없음' };
+  } else {
+    const months = cBalance / cBurn;
+    const cls = months < 3 ? 'danger' : months < 6 ? 'warn' : 'ok';
+    const endDate = addMonths(new Date(), months);
+    const dday = Math.round((endDate - new Date()) / 86400000);
+    const weeks = Math.round(dday / 7);
+    reinvestRunway = {
+      infinite: false,
+      text: `${months.toFixed(1)}개월`,
+      cls,
+      sub: `🗓 ${formatKDate(endDate)} 소진 예상 · 약 ${weeks}주 · D-${dday}`
+    };
+  }
+
   // 기존 호환을 위해 netBurn은 유지 (다른 곳에서 참조 가능)
   const netBurn = totalFixed - totalFixedIncome - totalIncome;
 
   container.innerHTML = `
+    <div style="display:flex; align-items:center; gap:10px; padding:10px 14px; background:var(--surface); border:1px solid var(--line); border-radius:6px; margin-bottom:14px; flex-wrap:wrap;">
+      <span style="font-size:0.82rem; color:var(--text-mid); font-weight:600;">📅 조회 날짜</span>
+      <input type="date" id="allTabDate" value="${viewDateStr}"
+        style="background:var(--bg); border:1px solid var(--line); color:var(--text); padding:6px 10px; font-family:inherit; font-size:0.9rem; border-radius:4px;">
+      <span style="font-size:0.78rem; color:var(--text-dim);">→ <strong style="color:var(--accent);">${monthStr}</strong> 데이터 합산${isToday ? ' · 오늘' : ''}</span>
+      ${!isToday ? `<button id="allTabDateReset" style="background:transparent; border:1px solid var(--line); color:var(--text-mid); padding:5px 10px; font-family:inherit; font-size:0.78rem; cursor:pointer; border-radius:4px;">↺ 오늘로</button>` : ''}
+    </div>
     <div class="summary-grid">
       <div class="summary-card all">
         <div class="sc-label">총 현금 잔고</div>
@@ -4490,7 +4539,9 @@ function renderAllTab(containerKey, accountKeys, displayName) {
       <div class="summary-card income">
         <div class="sc-label">📅 월 총 고정 순익</div>
         <div class="sc-value ${fixedNetIncome >= 0 ? 'ok' : 'danger'}">${fixedNetIncome >= 0 ? '+' : ''}${fmt(fixedNetIncome)}</div>
-        <div class="sc-sub">고정 수입 ${fmt(totalFixedIncome)} − 고정비 ${fmt(totalFixed)}</div>
+        <div class="sc-sub">${totalFixedIncomeCogs > 0
+          ? `회수금 ${fmt(totalFixedIncome)} − 원가 ${fmt(totalFixedIncomeCogs)} − 고정비 ${fmt(totalFixed)}`
+          : `고정 수입 ${fmt(totalFixedIncome)} − 고정비 ${fmt(totalFixed)}`}</div>
       </div>
       <div class="summary-card fixed">
         <div class="sc-label">💸 월 일회성 지출</div>
@@ -4516,8 +4567,16 @@ function renderAllTab(containerKey, accountKeys, displayName) {
         <div class="sc-label">⏳ 런웨이 B · 일회성 순익(1회) + 고정 순익 반영</div>
         <div class="sc-value ${fullRunway.cls}">${fullRunway.text}</div>
         <div class="sc-sub">잔고 ${fmt(totalBalance)} ${oneTimeNetIncome >= 0 ? '+' : '−'} 일회성 순익 ${fmt(Math.abs(oneTimeNetIncome))} = ${fmt(bBalance)}</div>
-        <div class="sc-sub">매월 고정 순지출 ${fmt(Math.max(bBurn, 0))} (= 고정비 − 고정 수입)</div>
+        <div class="sc-sub">매월 고정 순지출 ${fmt(Math.max(bBurn, 0))} (= 고정비 − 고정 수입 순익)</div>
         <div class="sc-sub" style="margin-top:4px; font-weight:600; color:var(--text-mid);">${fullRunway.sub}</div>
+      </div>
+      <div class="summary-card runway">
+        <div class="sc-label">⏳ 런웨이 C · 재투자 안 함 (회수금 전체 반영)</div>
+        <div class="sc-value ${reinvestRunway.cls}">${reinvestRunway.text}</div>
+        <div class="sc-sub">잔고 ${fmt(totalBalance)} + 일회성 회수금 ${fmt(totalIncome)} − 지출 ${fmt(totalExpense)} = ${fmt(cBalance)}</div>
+        <div class="sc-sub">매월 ${fmt(Math.max(cBurn, 0))} (= 고정비 − 고정 회수금)</div>
+        <div class="sc-sub" style="color:var(--text-dim); font-style:italic;">원가 차감 X — 재고 더 안 산다고 가정 (예: AROPHIL 청산)</div>
+        <div class="sc-sub" style="margin-top:4px; font-weight:600; color:var(--text-mid);">${reinvestRunway.sub}</div>
       </div>
     </div>
 
@@ -4589,7 +4648,9 @@ function renderAllTab(containerKey, accountKeys, displayName) {
       </div>
       <div class="pnl-breakdown">
         <div class="pnl-bd-row"><span>매출</span><span>+${fmt(totalRevenue)}</span></div>
-        <div class="pnl-bd-row"><span>월 고정 수입</span><span style="color:var(--ok);">+${fmt(totalFixedIncome)}</span></div>
+        <div class="pnl-bd-row"><span>월 고정 회수금</span><span style="color:var(--ok);">+${fmt(totalFixedIncome)}</span></div>
+        ${totalFixedIncomeCogs > 0 ? `<div class="pnl-bd-row" style="color: var(--text-dim); font-size: 0.75rem;"><span>└ 월 고정 원가</span><span>−${fmt(totalFixedIncomeCogs)}</span></div>
+        <div class="pnl-bd-row" style="font-size: 0.85rem;"><span>= 월 고정 수입 순익</span><span style="color:var(--ok);">+${fmt(totalFixedIncomeNet)}</span></div>` : ''}
         <div class="pnl-bd-row"><span>일회성 회수금 (해당월)</span><span style="color:var(--ok);">+${fmt(totalIncome)}</span></div>
         <div class="pnl-bd-row" style="color: var(--text-dim); font-size: 0.75rem;"><span>└ 일회성 원가 (재고 차감)</span><span>−${fmt(totalIncomeCogs)}</span></div>
         <div class="pnl-bd-row" style="font-size: 0.85rem;"><span>= 일회성 수입 순익</span><span style="color:var(--ok);">+${fmt(totalIncome - totalIncomeCogs)}</span></div>
@@ -4652,6 +4713,22 @@ function renderAllTab(containerKey, accountKeys, displayName) {
       if (id) deleteVersion(id);
     });
   });
+
+  // 날짜 선택 핸들러
+  const dateInput = container.querySelector('#allTabDate');
+  if (dateInput) {
+    dateInput.addEventListener('change', (e) => {
+      allTabSelectedDate = e.target.value || null;
+      renderAllTab(containerKey, accountKeys, displayName);
+    });
+  }
+  const resetBtn = container.querySelector('#allTabDateReset');
+  if (resetBtn) {
+    resetBtn.addEventListener('click', () => {
+      allTabSelectedDate = null;
+      renderAllTab(containerKey, accountKeys, displayName);
+    });
+  }
 }
 
 function renderAllForecastTable(accountKeys) {
