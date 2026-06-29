@@ -4585,27 +4585,6 @@ function renderAllTab(containerKey, accountKeys, displayName) {
     };
   }
 
-  // B) 잔고에 일회성 순익(1회) 반영 + 매월 고정 순지출(고정비 - 고정수입)로 소진
-  // 일회성은 반복 가정 X — 이번 달 한 번 잔고에 더하거나 빼고, 그 다음부터 고정 순지출만 매월
-  const bBalance = totalBalance + oneTimeNetIncome; // 잔고 ± 일회성 순익
-  const bBurn = totalFixed - totalFixedIncomeNet;    // 매월 고정 순지출 (고정 수입 순익 기준)
-  let fullRunway = {};
-  if (bBurn <= 0) {
-    fullRunway = { infinite: true, text: '∞', cls: 'ok', sub: '고정 수입이 고정비 이상 · 소진 시점 없음' };
-  } else {
-    const months = bBalance / bBurn;
-    const cls = months < 3 ? 'danger' : months < 6 ? 'warn' : 'ok';
-    const endDate = addMonths(new Date(), months);
-    const dday = Math.round((endDate - new Date()) / 86400000);
-    const weeks = Math.round(dday / 7);
-    fullRunway = {
-      infinite: false,
-      text: `${months.toFixed(1)}개월`,
-      cls,
-      sub: `🗓 ${formatKDate(endDate)} 소진 예상 · 약 ${weeks}주 · D-${dday}`
-    };
-  }
-
   // C) 일회성 순익 무반영 — 잔고에 이미 반영됐다고 가정
   // 가장 현실적 — 일회성 수입은 이미 받았거나 곧 받을 예정이라 잔고에 곧 반영됨
   // 잔고는 그대로, 매월 고정 순지출(고정비 - 고정 순익)로 소진
@@ -4752,19 +4731,13 @@ function renderAllTab(containerKey, accountKeys, displayName) {
         <div class="sc-sub" style="font-weight:600; color:var(--text-mid);">${fixedRunway.sub}</div>
       </div>
       <div class="summary-card runway">
-        <div class="sc-label">⏳ 런웨이 B · 순익 추가 반영</div>
-        <div class="sc-value ${fullRunway.cls}">${fullRunway.text}</div>
-        <div class="sc-sub">잔고+일회성 순익 ${fmt(bBalance)} / 월 ${fmt(Math.max(bBurn, 0))}</div>
-        <div class="sc-sub" style="font-weight:600; color:var(--text-mid);">${fullRunway.sub}</div>
-      </div>
-      <div class="summary-card runway">
-        <div class="sc-label">⏳ 런웨이 C · 일회성 이미 반영 (잔고 그대로)</div>
+        <div class="sc-label">⏳ 런웨이 B · 잔고 그대로 (고정 순익만)</div>
         <div class="sc-value ${conservativeRunway.cls}">${conservativeRunway.text}</div>
         <div class="sc-sub">잔고 ${fmt(totalBalance)} / 월 ${fmt(Math.max(cBurn2, 0))}</div>
         <div class="sc-sub" style="font-weight:600; color:var(--text-mid);">${conservativeRunway.sub}</div>
       </div>
       <div class="summary-card runway">
-        <div class="sc-label">⏳ 런웨이 D · 회수금 기준 (재투자 X)</div>
+        <div class="sc-label">⏳ 런웨이 C · 회수금 기준 (재투자 X)</div>
         <div class="sc-value ${reinvestRunway.cls}">${reinvestRunway.text}</div>
         <div class="sc-sub">잔고+일회성 회수금 ${fmt(cBalance)} / 월 ${fmt(Math.max(cBurn, 0))}</div>
         <div class="sc-sub" style="font-weight:600; color:var(--text-mid);">${reinvestRunway.sub}</div>
