@@ -2458,6 +2458,11 @@ function renderAccountTab(accountKey) {
         <div class="sc-label">${name} · 현금 잔고</div>
         <div class="sc-value accent">${fmt(acc.balance)}</div>
       </div>
+      <div class="summary-card fixed">
+        <div class="sc-label">🔒 ${name} · 월 고정비</div>
+        <div class="sc-value danger">${fmt(fixedSum)}</div>
+        <div class="sc-sub">+ 부가세 ${fmt(fixedVat)}</div>
+      </div>
       <div class="summary-card income">
         <div class="sc-label">📦 재고 자산</div>
         <div class="sc-value navy">${fmt(inventoryValue)}</div>
@@ -4610,8 +4615,11 @@ function renderAllTab(containerKey, accountKeys, displayName) {
   // D) 재투자 안 함 — 회수금(매출-부가세-비용, 원가 제외) 전체를 자금으로 반영
   // AROPHIL 재고 청산 같이 "더 이상 재투자 안 한다" 시나리오
   // 매출이 아닌 회수금을 써야 정확 (부가세·비용은 손에 안 들어오는 돈)
-  const cBalance = totalBalance + totalIncomeRecovery - totalExpense; // 잔고 + 일회성 회수금 - 일회성 지출
-  const cBurn = totalFixed - totalFixedIncomeRecovery;                 // 매월 고정비 - 고정 회수금
+  // C) 고정 회수금 기준 — 매월 고정 회수금이 매월 고정비를 상쇄 (재투자 안 함 가정)
+  // 일회성은 반영 X (한 번뿐인데 매월 반영하면 왜곡)
+  // 잔고는 그대로, 매월 (고정비 - 고정 회수금)으로 소진
+  const cBalance = totalBalance;                       // 잔고 그대로
+  const cBurn = totalFixed - totalFixedIncomeRecovery; // 매월 고정비 - 고정 회수금
   let reinvestRunway = {};
   if (cBurn <= 0) {
     reinvestRunway = { infinite: true, text: '∞', cls: 'ok', sub: '고정 회수금이 고정비 이상 · 소진 시점 없음' };
@@ -4731,15 +4739,15 @@ function renderAllTab(containerKey, accountKeys, displayName) {
         <div class="sc-sub" style="font-weight:600; color:var(--text-mid);">${fixedRunway.sub}</div>
       </div>
       <div class="summary-card runway">
-        <div class="sc-label">⏳ 런웨이 B · 잔고 그대로 (고정 순익만)</div>
+        <div class="sc-label">⏳ 런웨이 B · 고정 순익 기준</div>
         <div class="sc-value ${conservativeRunway.cls}">${conservativeRunway.text}</div>
-        <div class="sc-sub">잔고 ${fmt(totalBalance)} / 월 ${fmt(Math.max(cBurn2, 0))}</div>
+        <div class="sc-sub">잔고 ${fmt(totalBalance)} / 월 ${fmt(Math.max(cBurn2, 0))} (고정비 − 고정 순익)</div>
         <div class="sc-sub" style="font-weight:600; color:var(--text-mid);">${conservativeRunway.sub}</div>
       </div>
       <div class="summary-card runway">
-        <div class="sc-label">⏳ 런웨이 C · 회수금 기준 (재투자 X)</div>
+        <div class="sc-label">⏳ 런웨이 C · 고정 회수금 기준 (재투자 X)</div>
         <div class="sc-value ${reinvestRunway.cls}">${reinvestRunway.text}</div>
-        <div class="sc-sub">잔고+일회성 회수금 ${fmt(cBalance)} / 월 ${fmt(Math.max(cBurn, 0))}</div>
+        <div class="sc-sub">잔고 ${fmt(totalBalance)} / 월 ${fmt(Math.max(cBurn, 0))} (고정비 − 고정 회수금)</div>
         <div class="sc-sub" style="font-weight:600; color:var(--text-mid);">${reinvestRunway.sub}</div>
       </div>
     </div>
