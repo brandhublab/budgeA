@@ -2504,9 +2504,9 @@ function renderAccountTab(accountKey) {
         <div class="sc-sub">+ 부가세 ${fmt(fixedVat)}</div>
       </div>
       <div class="summary-card fixed">
-        <div class="sc-label">✂️ 감축 가능 고정비</div>
-        <div class="sc-value ${(acc.fixed.filter(f => f.reducible).reduce((s, f) => s + (f.amount || 0), 0)) > 0 ? 'warn' : 'ok'}">${fmt(acc.fixed.filter(f => f.reducible).reduce((s, f) => s + (f.amount || 0), 0))}</div>
-        <div class="sc-sub">🔒 불가 ${fmt(acc.fixed.filter(f => !f.reducible).reduce((s, f) => s + (f.amount || 0), 0))}</div>
+        <div class="sc-label">✂️ 감축 가능 금액</div>
+        <div class="sc-value ${acc.fixed.reduce((s, f) => s + (f.reducibleAmount || 0), 0) > 0 ? 'warn' : 'ok'}">${fmt(acc.fixed.reduce((s, f) => s + (f.reducibleAmount || 0), 0))}</div>
+        <div class="sc-sub">🔒 감축 후 필수: ${fmt(fixedSum - acc.fixed.reduce((s, f) => s + (f.reducibleAmount || 0), 0))}</div>
       </div>
       <div class="summary-card fixed">
         <div class="sc-label">👤 개인 · 🏢 사업</div>
@@ -2876,11 +2876,9 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
             value="${item.vat || 0}"
             data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="vat">`}
           ${listType === 'fixed' ? `
-          <select class="inp-select" title="감축 가능 여부"
-            data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="reducible">
-            <option value="no" ${!item.reducible ? 'selected' : ''}>🔒 불가</option>
-            <option value="yes" ${item.reducible ? 'selected' : ''}>✂️ 가능</option>
-          </select>
+          <input type="number" class="inp-vat" placeholder="감축가능" title="이 항목 중 감축 가능한 금액 (0이면 감축 불가)"
+            value="${item.reducibleAmount || 0}"
+            data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="reducibleAmount">
           <select class="inp-select" title="개인용/사업용"
             data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="category">
             <option value="business" ${(item.category || 'business') === 'business' ? 'selected' : ''}>🏢 사업</option>
@@ -2943,7 +2941,7 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
            <span class="il-col il-col-dim" title="수입 = 회수금 − 원가">수입</span>`
         : listType === 'fixed'
           ? `<span class="il-col ${isActive('vat')}" onclick="sortItemList('${accountKey}', '${listType}', 'vat')">부가세${colArrow('vat')}</span>
-             <span class="il-col il-col-dim" title="감축 가능 여부">감축</span>
+             <span class="il-col il-col-dim" title="이 항목 중 감축 가능한 금액">감축가능</span>
              <span class="il-col il-col-dim" title="개인용/사업용">유형</span>
              <span class="il-col il-col-dim">비용</span>`
           : `<span class="il-col ${isActive('vat')}" onclick="sortItemList('${accountKey}', '${listType}', 'vat')">부가세${colArrow('vat')}</span>
@@ -4788,9 +4786,9 @@ function renderAllTab(containerKey, accountKeys, displayName) {
         <div class="sc-sub">+ 부가세 ${fmt(totalFixedVat)}</div>
       </div>
       <div class="summary-card fixed">
-        <div class="sc-label">✂️ 감축 가능 고정비</div>
-        <div class="sc-value warn">${fmt(KEYS.reduce((s, k) => s + DATA.accounts[k].fixed.filter(f => f.reducible).reduce((ss, f) => ss + (f.amount || 0), 0), 0))}</div>
-        <div class="sc-sub">🔒 불가 ${fmt(KEYS.reduce((s, k) => s + DATA.accounts[k].fixed.filter(f => !f.reducible).reduce((ss, f) => ss + (f.amount || 0), 0), 0))}</div>
+        <div class="sc-label">✂️ 감축 가능 금액</div>
+        <div class="sc-value warn">${fmt(KEYS.reduce((s, k) => s + DATA.accounts[k].fixed.reduce((ss, f) => ss + (f.reducibleAmount || 0), 0), 0))}</div>
+        <div class="sc-sub">🔒 감축 후 필수: ${fmt(totalFixed - KEYS.reduce((s, k) => s + DATA.accounts[k].fixed.reduce((ss, f) => ss + (f.reducibleAmount || 0), 0), 0))}</div>
       </div>
       <div class="summary-card fixed">
         <div class="sc-label">👤 개인 vs 🏢 사업 고정비</div>
