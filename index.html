@@ -413,12 +413,12 @@
   .item-row.expense-row {
     grid-template-columns: 110px 1.8fr 1fr 0.9fr 46px 36px;
   }
-  /* 고정비 전용: 명칭 | 금액 | 부가세 | 감축 | 유형 | 비용 | 삭제 */
+  /* 고정비 전용: 명칭 | 금액 | 부가세 | 감축 | 유형 | 세부카테 | 태그(비용/이자) | 삭제 */
   .item-row.fixed-row {
-    grid-template-columns: 1.4fr 0.95fr 0.85fr 0.7fr 0.7fr 46px 30px;
+    grid-template-columns: 1.1fr 0.85fr 0.7fr 0.7fr 0.55fr 0.85fr 60px 28px;
   }
   .il-cols.fixed-row {
-    grid-template-columns: 1.4fr 0.95fr 0.85fr 0.7fr 0.7fr 46px 30px;
+    grid-template-columns: 1.1fr 0.85fr 0.7fr 0.7fr 0.55fr 0.85fr 60px 28px;
   }
   .inp-select {
     background: var(--surface);
@@ -430,6 +430,38 @@
     border-radius: 3px;
     width: 100%;
   }
+  .inp-tags {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 0.72rem;
+  }
+  .inp-tags label {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    cursor: pointer;
+    color: var(--text-mid);
+    white-space: nowrap;
+  }
+  .inp-tags input[type="checkbox"] {
+    margin: 0;
+    accent-color: var(--accent);
+  }
+  .cat-breakdown {
+    font-size: 0.78rem;
+    line-height: 1.7;
+    margin-top: 6px;
+  }
+  .cat-breakdown-row {
+    display: flex;
+    justify-content: space-between;
+    color: var(--text-mid);
+    padding: 2px 0;
+    border-bottom: 1px dashed var(--line-soft);
+  }
+  .cat-breakdown-row:last-child { border-bottom: none; }
+  .cat-breakdown-row .cat-name { color: var(--text); }
   /* 일회성 수입 행: 날짜 | 명칭 | 매출 | 부가세(자동) | 원가 | 비용% | 회수금(자동) | 수입(자동) | 삭제 */
   .item-row.income-row {
     grid-template-columns: 88px 0.9fr 0.85fr 0.65fr 0.85fr 0.45fr 0.85fr 0.85fr 28px;
@@ -1109,6 +1141,9 @@
 </style>
 </head>
 <body>
+
+<!-- 세부 카테고리 자동완성 datalist (JS로 동적 갱신) -->
+<datalist id="subCategoryList"></datalist>
 
 <!-- 🔐 암호 보호 오버레이 -->
 <div id="pwOverlay" style="
@@ -2384,6 +2419,7 @@ function isCustomAccount(key) {
 
 // ==================== 계좌 탭 렌더링 ====================
 function renderAccountTab(accountKey) {
+  refreshSubCategoryList();
   const acc = DATA.accounts[accountKey];
   const name = DATA.tabNames[accountKey] || accountKey;
   const container = document.querySelector(`[data-tab-content="${accountKey}"]`);
@@ -2509,10 +2545,31 @@ function renderAccountTab(accountKey) {
         <div class="sc-sub">🔒 감축 후 필수: ${fmt(fixedSum - acc.fixed.reduce((s, f) => s + (f.reducibleAmount || 0), 0))}</div>
       </div>
       <div class="summary-card fixed">
-        <div class="sc-label">👤 개인 · 🏢 사업</div>
-        <div class="sc-value" style="font-size:1.2rem;">👤 ${fmt(acc.fixed.filter(f => f.category === 'personal').reduce((s, f) => s + (f.amount || 0), 0))}</div>
-        <div class="sc-sub">🏢 ${fmt(acc.fixed.filter(f => (f.category || 'business') === 'business').reduce((s, f) => s + (f.amount || 0), 0))}</div>
+        <div class="sc-label">👤 개인 고정비</div>
+        <div class="sc-value danger">${fmt(acc.fixed.filter(f => f.category === 'personal').reduce((s, f) => s + (f.amount || 0), 0))}</div>
+        <div class="sc-sub">${acc.fixed.filter(f => f.category === 'personal').length}건</div>
       </div>
+      <div class="summary-card fixed">
+        <div class="sc-label">🏢 사업 고정비</div>
+        <div class="sc-value danger">${fmt(acc.fixed.filter(f => (f.category || 'business') === 'business').reduce((s, f) => s + (f.amount || 0), 0))}</div>
+        <div class="sc-sub">${acc.fixed.filter(f => (f.category || 'business') === 'business').length}건</div>
+      </div>
+      <div class="summary-card fixed">
+        <div class="sc-label">💸 월 이자 지출</div>
+        <div class="sc-value danger">${fmt(acc.fixed.filter(f => f.interest).reduce((s, f) => s + (f.amount || 0), 0))}</div>
+        <div class="sc-sub">이자 태그된 항목 합계</div>
+      </div>
+      ${(() => {
+        const bd = fixedCategoryBreakdown([accountKey]);
+        return `
+      <div class="summary-card fixed" style="grid-column: span 2;">
+        <div class="sc-label">📊 세부 카테고리별</div>
+        <div class="sc-sub" style="margin-top:6px; margin-bottom:2px; color:var(--text-mid); font-weight:600;">👤 개인</div>
+        ${renderCategoryBreakdown(bd.personal, '개인')}
+        <div class="sc-sub" style="margin-top:10px; margin-bottom:2px; color:var(--text-mid); font-weight:600;">🏢 사업</div>
+        ${renderCategoryBreakdown(bd.business, '사업')}
+      </div>`;
+      })()}
       <div class="summary-card income">
         <div class="sc-label">📦 재고 자산</div>
         <div class="sc-value navy">${fmt(inventoryValue)}</div>
@@ -2718,6 +2775,56 @@ function incomeItemNet(item) {
   return incomeItemBreakdown(item).net;
 }
 
+// 세부 카테고리 자동완성 갱신 (전역 datalist)
+function refreshSubCategoryList() {
+  const dl = document.getElementById('subCategoryList');
+  if (!dl) return;
+  const set = new Set();
+  getAccountKeys().forEach(k => {
+    (DATA.accounts[k].fixed || []).forEach(f => {
+      if (f.subCategory && f.subCategory.trim()) set.add(f.subCategory.trim());
+    });
+  });
+  dl.innerHTML = Array.from(set).sort().map(s => `<option value="${s}">`).join('');
+}
+
+// 고정비 세부 카테고리별 합계 (개인/사업 분리)
+// accounts: 배열 (계좌 키들)
+// returns: { personal: [{name, amount}...], business: [{name, amount}...] }
+function fixedCategoryBreakdown(accountKeys) {
+  const personal = new Map();
+  const business = new Map();
+  accountKeys.forEach(k => {
+    (DATA.accounts[k].fixed || []).forEach(f => {
+      const cat = (f.category || 'business') === 'personal' ? personal : business;
+      // 세부카테고리 없으면 명칭 사용
+      const label = (f.subCategory && f.subCategory.trim()) || f.name || '(미분류)';
+      cat.set(label, (cat.get(label) || 0) + (f.amount || 0));
+    });
+  });
+  const sortDesc = m => Array.from(m.entries())
+    .map(([name, amount]) => ({ name, amount }))
+    .sort((a, b) => b.amount - a.amount);
+  return { personal: sortDesc(personal), business: sortDesc(business) };
+}
+
+// breakdown HTML 생성 (상위 5개, 나머지는 축약)
+function renderCategoryBreakdown(items, prefix) {
+  if (items.length === 0) return `<div style="color:var(--text-dim); font-size:0.75rem;">${prefix} 항목 없음</div>`;
+  const top = items.slice(0, 5);
+  const rest = items.slice(5);
+  let html = '<div class="cat-breakdown">';
+  top.forEach(it => {
+    html += `<div class="cat-breakdown-row"><span class="cat-name">${it.name}</span><span>${fmt(it.amount)}</span></div>`;
+  });
+  if (rest.length > 0) {
+    const restSum = rest.reduce((s, it) => s + it.amount, 0);
+    html += `<div class="cat-breakdown-row" style="color:var(--text-dim); font-style:italic;"><span>외 ${rest.length}개</span><span>${fmt(restSum)}</span></div>`;
+  }
+  html += '</div>';
+  return html;
+}
+
 // 조회 날짜 변경 시 모든 관련 탭 갱신 (첫 페이지, 계좌 탭, composite)
 // allTabSelectedDate가 바뀌면 어디서 트리거됐든 모든 화면이 같은 월을 봐야 함
 function syncDateView() {
@@ -2883,7 +2990,10 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
             data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="category">
             <option value="business" ${(item.category || 'business') === 'business' ? 'selected' : ''}>🏢 사업</option>
             <option value="personal" ${item.category === 'personal' ? 'selected' : ''}>👤 개인</option>
-          </select>` : ''}
+          </select>
+          <input type="text" class="inp-name" list="subCategoryList" placeholder="세부 (예: 아버지 용돈)" title="세부 카테고리 (자유입력, 이전 입력 자동완성)"
+            value="${item.subCategory || ''}"
+            data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="subCategory">` : ''}
           ${isIncome ? `<input type="number" class="inp-vat" placeholder="원가" title="재고에서 빠진 원가 (없으면 0)"
             value="${item.cogs || 0}"
             data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="cogs">
@@ -2892,11 +3002,16 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
             data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="extraCostPct">
           <div class="income-auto" title="회수금 = 매출 − 부가세 − 비용 (원가 제외)">${fmt(autoRecovery)}</div>
           <div class="income-auto income-net" title="수입 = 회수금 − 원가">${autoNet >= 0 ? '+' : ''}${fmt(autoNet)}</div>` : ''}
-          ${!isIncome ? `<label class="inp-cost" title="비용 처리 가능 여부">
+          ${!isIncome ? (listType === 'fixed' ? `<div class="inp-tags">
+            <label title="비용 처리 가능 여부"><input type="checkbox" ${isCost ? 'checked' : ''}
+              data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="cost"><span>비용</span></label>
+            <label title="이자 지출 여부"><input type="checkbox" ${item.interest ? 'checked' : ''}
+              data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="interest"><span>이자</span></label>
+          </div>` : `<label class="inp-cost" title="비용 처리 가능 여부">
             <input type="checkbox" ${isCost ? 'checked' : ''}
               data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="cost">
             <span>비용</span>
-          </label>` : ''}
+          </label>`) : ''}
           <button class="del-btn" data-account="${accountKey}" data-list="${listType}" data-idx="${idx}">✕</button>
         </div>
       `;
@@ -2941,9 +3056,10 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
            <span class="il-col il-col-dim" title="수입 = 회수금 − 원가">수입</span>`
         : listType === 'fixed'
           ? `<span class="il-col ${isActive('vat')}" onclick="sortItemList('${accountKey}', '${listType}', 'vat')">부가세${colArrow('vat')}</span>
-             <span class="il-col il-col-dim" title="이 항목 중 감축 가능한 금액">감축가능</span>
-             <span class="il-col il-col-dim" title="개인용/사업용">유형</span>
-             <span class="il-col il-col-dim">비용</span>`
+             <span class="il-col il-col-dim" title="감축 가능 금액">감축가능</span>
+             <span class="il-col il-col-dim" title="개인/사업">유형</span>
+             <span class="il-col il-col-dim" title="세부 카테고리 (자유입력)">세부</span>
+             <span class="il-col il-col-dim" title="비용/이자">태그</span>`
           : `<span class="il-col ${isActive('vat')}" onclick="sortItemList('${accountKey}', '${listType}', 'vat')">부가세${colArrow('vat')}</span>
              <span class="il-col il-col-dim">비용</span>`}
       <span class="il-col il-col-dim"></span>
@@ -4557,6 +4673,7 @@ function attachEmergencyListeners() {
 
 // ==================== 전체 탭 ====================
 function renderAllTab(containerKey, accountKeys, displayName) {
+  refreshSubCategoryList();
   containerKey = containerKey || 'all';
   const KEYS = (accountKeys && accountKeys.length) ? accountKeys : getAccountKeys();
   displayName = displayName || '전체';
@@ -4791,10 +4908,31 @@ function renderAllTab(containerKey, accountKeys, displayName) {
         <div class="sc-sub">🔒 감축 후 필수: ${fmt(totalFixed - KEYS.reduce((s, k) => s + DATA.accounts[k].fixed.reduce((ss, f) => ss + (f.reducibleAmount || 0), 0), 0))}</div>
       </div>
       <div class="summary-card fixed">
-        <div class="sc-label">👤 개인 vs 🏢 사업 고정비</div>
-        <div class="sc-value" style="font-size:1.1rem;">👤 ${fmt(KEYS.reduce((s, k) => s + DATA.accounts[k].fixed.filter(f => f.category === 'personal').reduce((ss, f) => ss + (f.amount || 0), 0), 0))}</div>
-        <div class="sc-sub">🏢 ${fmt(KEYS.reduce((s, k) => s + DATA.accounts[k].fixed.filter(f => (f.category || 'business') === 'business').reduce((ss, f) => ss + (f.amount || 0), 0), 0))}</div>
+        <div class="sc-label">👤 개인 고정비 (전체)</div>
+        <div class="sc-value danger">${fmt(KEYS.reduce((s, k) => s + DATA.accounts[k].fixed.filter(f => f.category === 'personal').reduce((ss, f) => ss + (f.amount || 0), 0), 0))}</div>
+        <div class="sc-sub">${KEYS.reduce((s, k) => s + DATA.accounts[k].fixed.filter(f => f.category === 'personal').length, 0)}건</div>
       </div>
+      <div class="summary-card fixed">
+        <div class="sc-label">🏢 사업 고정비 (전체)</div>
+        <div class="sc-value danger">${fmt(KEYS.reduce((s, k) => s + DATA.accounts[k].fixed.filter(f => (f.category || 'business') === 'business').reduce((ss, f) => ss + (f.amount || 0), 0), 0))}</div>
+        <div class="sc-sub">${KEYS.reduce((s, k) => s + DATA.accounts[k].fixed.filter(f => (f.category || 'business') === 'business').length, 0)}건</div>
+      </div>
+      <div class="summary-card fixed">
+        <div class="sc-label">💸 월 이자 지출 (전체)</div>
+        <div class="sc-value danger">${fmt(KEYS.reduce((s, k) => s + DATA.accounts[k].fixed.filter(f => f.interest).reduce((ss, f) => ss + (f.amount || 0), 0), 0))}</div>
+        <div class="sc-sub">이자 태그된 항목 합계</div>
+      </div>
+      ${(() => {
+        const bd = fixedCategoryBreakdown(KEYS);
+        return `
+      <div class="summary-card fixed" style="grid-column: span 2;">
+        <div class="sc-label">📊 세부 카테고리별 (전체)</div>
+        <div class="sc-sub" style="margin-top:6px; margin-bottom:2px; color:var(--text-mid); font-weight:600;">👤 개인</div>
+        ${renderCategoryBreakdown(bd.personal, '개인')}
+        <div class="sc-sub" style="margin-top:10px; margin-bottom:2px; color:var(--text-mid); font-weight:600;">🏢 사업</div>
+        ${renderCategoryBreakdown(bd.business, '사업')}
+      </div>`;
+      })()}
       <div class="summary-card fixed">
         <div class="sc-label">🔻 월 순지출 (회수금 반영)</div>
         <div class="sc-value ${(totalFixed - totalFixedIncomeRecovery) > 0 ? 'danger' : 'ok'}">${fmt(totalFixed - totalFixedIncomeRecovery)}</div>
