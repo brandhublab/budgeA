@@ -2559,17 +2559,6 @@ function renderAccountTab(accountKey) {
         <div class="sc-value danger">${fmt(acc.fixed.filter(f => f.interest).reduce((s, f) => s + (f.amount || 0), 0))}</div>
         <div class="sc-sub">이자 태그된 항목 합계</div>
       </div>
-      ${(() => {
-        const bd = fixedCategoryBreakdown([accountKey]);
-        return `
-      <div class="summary-card fixed" style="grid-column: span 2;">
-        <div class="sc-label">📊 세부 카테고리별</div>
-        <div class="sc-sub" style="margin-top:6px; margin-bottom:2px; color:var(--text-mid); font-weight:600;">👤 개인</div>
-        ${renderCategoryBreakdown(bd.personal, '개인')}
-        <div class="sc-sub" style="margin-top:10px; margin-bottom:2px; color:var(--text-mid); font-weight:600;">🏢 사업</div>
-        ${renderCategoryBreakdown(bd.business, '사업')}
-      </div>`;
-      })()}
       <div class="summary-card income">
         <div class="sc-label">📦 재고 자산</div>
         <div class="sc-value navy">${fmt(inventoryValue)}</div>
@@ -2636,6 +2625,28 @@ function renderAccountTab(accountKey) {
     ${renderItemList(accountKey, 'income', '💰 월 일회성 수입', '수입', true, true)}
     ${renderItemList(accountKey, 'investment', '💎 제품 투자 (자산 · 재고로 남는 돈)', '제품투자', true)}
     ${renderItemList(accountKey, 'ads', '📢 광고비 (일별)', '광고비', true)}
+
+    ${(() => {
+      const bd = fixedCategoryBreakdown([accountKey]);
+      const pTotal = bd.personal.reduce((s, i) => s + i.amount, 0);
+      const bTotal = bd.business.reduce((s, i) => s + i.amount, 0);
+      return `
+    <div class="breakdown">
+      <div class="breakdown-toggle" data-breakdown="cat-${accountKey}">
+        <span>📊 세부 카테고리별 (${name})</span>
+        <span>
+          <span style="color: var(--text-mid); margin-right: 8px; font-size:0.85rem;">👤 ${bd.personal.length}개 ${fmt(pTotal)} · 🏢 ${bd.business.length}개 ${fmt(bTotal)}</span>
+          <span class="chevron">▸</span>
+        </span>
+      </div>
+      <div class="breakdown-body" data-breakdown-body="cat-${accountKey}">
+        <div style="padding: 8px 12px 4px; color:var(--text-mid); font-weight:600; font-size:0.85rem;">👤 개인</div>
+        <div style="padding: 0 12px;">${renderCategoryBreakdownFull(bd.personal)}</div>
+        <div style="padding: 12px 12px 4px; color:var(--text-mid); font-weight:600; font-size:0.85rem;">🏢 사업</div>
+        <div style="padding: 0 12px 8px;">${renderCategoryBreakdownFull(bd.business)}</div>
+      </div>
+    </div>`;
+    })()}
 
     <!-- 월별 요약 토글 -->
     <div class="breakdown">
@@ -2775,6 +2786,24 @@ function incomeItemNet(item) {
   return incomeItemBreakdown(item).net;
 }
 
+// 세부 카테고리 목록 (개인/사업)
+// 개인: 일반 가계부 항목
+const PERSONAL_CATEGORIES = [
+  '식대', '카페/외식', '본인 용돈', '데이트', '선물', '경조사비',
+  '부모님', '병원비', '교통비', '차량유지비', '통신비',
+  '주거비', '관리비', '공과금', '보험료', '대출이자',
+  '교육비', '문화/여가', '의류/미용', '접대비', '여비교통비',
+  '저축', '투자', '기부', '기타'
+];
+// 사업: 손익계산서 계정과목 (일반)
+const BUSINESS_CATEGORIES = [
+  '매출원가', '급여', '복리후생비', '임차료', '수도광열비',
+  '통신비', '소모품비', '세금과공과', '지급수수료', '광고선전비',
+  '접대비', '여비교통비', '운반비', '도서인쇄비', '보험료',
+  '차량유지비', '수선비', '외주가공비', '감가상각비',
+  '이자비용', '대손상각비', '잡비', '기타'
+];
+
 // 세부 카테고리 자동완성 갱신 (전역 datalist)
 function refreshSubCategoryList() {
   const dl = document.getElementById('subCategoryList');
@@ -2821,6 +2850,17 @@ function renderCategoryBreakdown(items, prefix) {
     const restSum = rest.reduce((s, it) => s + it.amount, 0);
     html += `<div class="cat-breakdown-row" style="color:var(--text-dim); font-style:italic;"><span>외 ${rest.length}개</span><span>${fmt(restSum)}</span></div>`;
   }
+  html += '</div>';
+  return html;
+}
+
+// 토글 안에서 사용하는 전체 표시 (제한 없음)
+function renderCategoryBreakdownFull(items) {
+  if (items.length === 0) return `<div style="color:var(--text-dim); font-size:0.8rem; padding: 4px 0;">항목 없음</div>`;
+  let html = '<div class="cat-breakdown">';
+  items.forEach(it => {
+    html += `<div class="cat-breakdown-row"><span class="cat-name">${it.name}</span><span>${fmt(it.amount)}</span></div>`;
+  });
   html += '</div>';
   return html;
 }
@@ -2991,9 +3031,19 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
             <option value="business" ${(item.category || 'business') === 'business' ? 'selected' : ''}>🏢 사업</option>
             <option value="personal" ${item.category === 'personal' ? 'selected' : ''}>👤 개인</option>
           </select>
-          <input type="text" class="inp-name" list="subCategoryList" placeholder="세부 (예: 아버지 용돈)" title="세부 카테고리 (자유입력, 이전 입력 자동완성)"
-            value="${item.subCategory || ''}"
-            data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="subCategory">` : ''}
+          ${(() => {
+            const cat = item.category || 'business';
+            const opts = cat === 'personal' ? PERSONAL_CATEGORIES : BUSINESS_CATEGORIES;
+            // 기존 데이터 호환: subCategory가 정의된 목록에 없으면 자동 추가 (custom entry)
+            const allOpts = item.subCategory && !opts.includes(item.subCategory)
+              ? [...opts, item.subCategory]
+              : opts;
+            return `<select class="inp-select" title="세부 카테고리"
+              data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="subCategory">
+              <option value="">(선택)</option>
+              ${allOpts.map(c => `<option value="${c}" ${item.subCategory === c ? 'selected' : ''}>${c}</option>`).join('')}
+            </select>`;
+          })()}` : ''}
           ${isIncome ? `<input type="number" class="inp-vat" placeholder="원가" title="재고에서 빠진 원가 (없으면 0)"
             value="${item.cogs || 0}"
             data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="cogs">
@@ -4922,39 +4972,10 @@ function renderAllTab(containerKey, accountKeys, displayName) {
         <div class="sc-value danger">${fmt(KEYS.reduce((s, k) => s + DATA.accounts[k].fixed.filter(f => f.interest).reduce((ss, f) => ss + (f.amount || 0), 0), 0))}</div>
         <div class="sc-sub">이자 태그된 항목 합계</div>
       </div>
-      ${(() => {
-        const bd = fixedCategoryBreakdown(KEYS);
-        return `
-      <div class="summary-card fixed" style="grid-column: span 2;">
-        <div class="sc-label">📊 세부 카테고리별 (전체)</div>
-        <div class="sc-sub" style="margin-top:6px; margin-bottom:2px; color:var(--text-mid); font-weight:600;">👤 개인</div>
-        ${renderCategoryBreakdown(bd.personal, '개인')}
-        <div class="sc-sub" style="margin-top:10px; margin-bottom:2px; color:var(--text-mid); font-weight:600;">🏢 사업</div>
-        ${renderCategoryBreakdown(bd.business, '사업')}
-      </div>`;
-      })()}
       <div class="summary-card fixed">
         <div class="sc-label">🔻 월 순지출 (회수금 반영)</div>
         <div class="sc-value ${(totalFixed - totalFixedIncomeRecovery) > 0 ? 'danger' : 'ok'}">${fmt(totalFixed - totalFixedIncomeRecovery)}</div>
         <div class="sc-sub">고정비 ${fmt(totalFixed)} − 고정 회수금 ${fmt(totalFixedIncomeRecovery)}</div>
-      </div>
-      <div class="summary-card income">
-        <div class="sc-label">📅 월 총 고정 순익</div>
-        <div class="sc-value ${fixedNetIncome >= 0 ? 'ok' : 'danger'}">${fixedNetIncome >= 0 ? '+' : ''}${fmt(fixedNetIncome)}</div>
-        <div class="sc-sub">${totalFixedIncomeCogs > 0
-          ? `매출 ${fmt(totalFixedIncome)} · 회수금 ${fmt(totalFixedIncomeRecovery)} − 원가 ${fmt(totalFixedIncomeCogs)} − 고정비 ${fmt(totalFixed)}`
-          : `매출 ${fmt(totalFixedIncome)} · 회수금 ${fmt(totalFixedIncomeRecovery)} − 고정비 ${fmt(totalFixed)}`}</div>
-      </div>
-      <div class="summary-card fixed">
-        <div class="sc-label">💸 월 일회성 지출</div>
-        <div class="sc-value danger">${fmt(totalExpense)}</div>
-        <div class="sc-sub">${monthStr} 입력 합산</div>
-      </div>
-      <div class="summary-card income">
-        <div class="sc-label">💰 월 일회성 순익</div>
-        <div class="sc-value ${oneTimeNetIncome >= 0 ? 'ok' : 'danger'}">${oneTimeNetIncome >= 0 ? '+' : ''}${fmt(oneTimeNetIncome)}</div>
-        <div class="sc-sub">매출 ${fmt(totalIncome)} · 회수금 ${fmt(totalIncomeRecovery)}${totalIncomeCogs > 0 ? ` − 원가 ${fmt(totalIncomeCogs)}` : ''} − 지출 ${fmt(totalExpense)}</div>
-        <div class="sc-sub" style="color:var(--text-dim);">실제 새 자금 = 회수금 − 원가</div>
       </div>
     </div>
 
@@ -5075,6 +5096,49 @@ function renderAllTab(containerKey, accountKeys, displayName) {
         ${renderAllForecastTable(KEYS)}
       </div>
     </div>
+
+    <div class="summary-grid">
+      <div class="summary-card income">
+        <div class="sc-label">📅 월 총 고정 순익</div>
+        <div class="sc-value ${fixedNetIncome >= 0 ? 'ok' : 'danger'}">${fixedNetIncome >= 0 ? '+' : ''}${fmt(fixedNetIncome)}</div>
+        <div class="sc-sub">${totalFixedIncomeCogs > 0
+          ? `매출 ${fmt(totalFixedIncome)} · 회수금 ${fmt(totalFixedIncomeRecovery)} − 원가 ${fmt(totalFixedIncomeCogs)} − 고정비 ${fmt(totalFixed)}`
+          : `매출 ${fmt(totalFixedIncome)} · 회수금 ${fmt(totalFixedIncomeRecovery)} − 고정비 ${fmt(totalFixed)}`}</div>
+      </div>
+      <div class="summary-card fixed">
+        <div class="sc-label">💸 월 일회성 지출</div>
+        <div class="sc-value danger">${fmt(totalExpense)}</div>
+        <div class="sc-sub">${monthStr} 입력 합산</div>
+      </div>
+      <div class="summary-card income">
+        <div class="sc-label">💰 월 일회성 순익</div>
+        <div class="sc-value ${oneTimeNetIncome >= 0 ? 'ok' : 'danger'}">${oneTimeNetIncome >= 0 ? '+' : ''}${fmt(oneTimeNetIncome)}</div>
+        <div class="sc-sub">매출 ${fmt(totalIncome)} · 회수금 ${fmt(totalIncomeRecovery)}${totalIncomeCogs > 0 ? ` − 원가 ${fmt(totalIncomeCogs)}` : ''} − 지출 ${fmt(totalExpense)}</div>
+        <div class="sc-sub" style="color:var(--text-dim);">실제 새 자금 = 회수금 − 원가</div>
+      </div>
+    </div>
+
+    ${(() => {
+      const bd = fixedCategoryBreakdown(KEYS);
+      const pTotal = bd.personal.reduce((s, i) => s + i.amount, 0);
+      const bTotal = bd.business.reduce((s, i) => s + i.amount, 0);
+      return `
+    <div class="breakdown">
+      <div class="breakdown-toggle" data-breakdown="cat-all">
+        <span>📊 세부 카테고리별 (전체)</span>
+        <span>
+          <span style="color: var(--text-mid); margin-right: 8px; font-size:0.85rem;">👤 ${bd.personal.length}개 ${fmt(pTotal)} · 🏢 ${bd.business.length}개 ${fmt(bTotal)}</span>
+          <span class="chevron">▸</span>
+        </span>
+      </div>
+      <div class="breakdown-body" data-breakdown-body="cat-all">
+        <div style="padding: 8px 12px 4px; color:var(--text-mid); font-weight:600; font-size:0.85rem;">👤 개인</div>
+        <div style="padding: 0 12px;">${renderCategoryBreakdownFull(bd.personal)}</div>
+        <div style="padding: 12px 12px 4px; color:var(--text-mid); font-weight:600; font-size:0.85rem;">🏢 사업</div>
+        <div style="padding: 0 12px 8px;">${renderCategoryBreakdownFull(bd.business)}</div>
+      </div>
+    </div>`;
+    })()}
 
     ${renderVersionSectionFor(containerKey)}
   `;
