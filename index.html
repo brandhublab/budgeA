@@ -448,6 +448,21 @@
     margin: 0;
     accent-color: var(--accent);
   }
+  /* 금액 셀 안 비율 배지 (고정비 전용) */
+  .amount-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .amount-ratio {
+    font-size: 0.68rem;
+    color: var(--text-dim);
+    line-height: 1.2;
+    padding: 0 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .cat-breakdown {
     font-size: 0.78rem;
     line-height: 1.7;
@@ -476,6 +491,25 @@
   .il-cols.income-row-nodate {
     grid-template-columns: 0.9fr 0.85fr 0.65fr 0.85fr 0.45fr 0.85fr 0.85fr 28px;
   }
+  /* 제품 투자 전용: 날짜 | 명칭 | 필요금액 | 보유금액 | 차액(자동) | 부가세 | 비용 | 삭제 */
+  .item-row.investment-row {
+    grid-template-columns: 88px 1.1fr 0.9fr 0.9fr 0.9fr 0.7fr 46px 28px;
+  }
+  .il-cols.investment-row {
+    grid-template-columns: 88px 1.1fr 0.9fr 0.9fr 0.9fr 0.7fr 46px 28px;
+  }
+  .diff-shortage {
+    background: var(--bg);
+    border: 1px solid var(--line-soft);
+    padding: 9px 10px;
+    font-size: 0.85rem;
+    text-align: right;
+    font-family: inherit;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+  .diff-shortage.short { color: var(--danger); }
+  .diff-shortage.ok { color: var(--ok); }
   .income-auto {
     background: var(--bg);
     border: 1px solid var(--line-soft);
@@ -804,8 +838,12 @@
   }
   .breakdown-toggle.open { border-bottom-color: var(--line); }
   .breakdown-toggle .chevron {
-    color: var(--text-dim);
+    color: var(--accent);
+    font-size: 1.15rem;
+    font-weight: bold;
     transition: transform 0.2s;
+    display: inline-block;
+    margin-left: 6px;
   }
   .breakdown-toggle.open .chevron { transform: rotate(90deg); }
   .breakdown-body { display: none; padding: 12px 14px; }
@@ -2559,6 +2597,19 @@ function renderAccountTab(accountKey) {
         <div class="sc-value danger">${fmt(acc.fixed.filter(f => f.interest).reduce((s, f) => s + (f.amount || 0), 0))}</div>
         <div class="sc-sub">이자 태그된 항목 합계</div>
       </div>
+      ${(() => {
+        const invItems = acc.investment || [];
+        if (invItems.length === 0) return '';
+        const needed = invItems.reduce((s, i) => s + (i.amount || 0), 0);
+        const held = invItems.reduce((s, i) => s + (i.heldAmount || 0), 0);
+        const diff = needed - held;
+        return `
+      <div class="summary-card fixed">
+        <div class="sc-label">💎 제품 투자 · 필요/보유</div>
+        <div class="sc-value ${diff > 0 ? 'danger' : 'ok'}" style="font-size:1.15rem;">${diff > 0 ? '−' : (diff < 0 ? '+' : '')}${fmt(Math.abs(diff))}</div>
+        <div class="sc-sub">필요 ${fmt(needed)} · 보유 ${fmt(held)}</div>
+      </div>`;
+      })()}
       <div class="summary-card income">
         <div class="sc-label">📦 재고 자산</div>
         <div class="sc-value navy">${fmt(inventoryValue)}</div>
@@ -2632,18 +2683,18 @@ function renderAccountTab(accountKey) {
       const bTotal = bd.business.reduce((s, i) => s + i.amount, 0);
       return `
     <div class="breakdown">
-      <div class="breakdown-toggle" data-breakdown="cat-${accountKey}">
-        <span>📊 세부 카테고리별 (${name})</span>
+      <div class="breakdown-toggle" onclick="this.classList.toggle('open'); this.nextElementSibling.classList.toggle('open');">
+        <span>📊 세부 카테고리별 (${name}) · 클릭해서 펼치기</span>
         <span>
           <span style="color: var(--text-mid); margin-right: 8px; font-size:0.85rem;">👤 ${bd.personal.length}개 ${fmt(pTotal)} · 🏢 ${bd.business.length}개 ${fmt(bTotal)}</span>
-          <span class="chevron">▸</span>
+          <span class="chevron">▶</span>
         </span>
       </div>
-      <div class="breakdown-body" data-breakdown-body="cat-${accountKey}">
-        <div style="padding: 8px 12px 4px; color:var(--text-mid); font-weight:600; font-size:0.85rem;">👤 개인</div>
-        <div style="padding: 0 12px;">${renderCategoryBreakdownFull(bd.personal)}</div>
-        <div style="padding: 12px 12px 4px; color:var(--text-mid); font-weight:600; font-size:0.85rem;">🏢 사업</div>
-        <div style="padding: 0 12px 8px;">${renderCategoryBreakdownFull(bd.business)}</div>
+      <div class="breakdown-body">
+        <div style="padding: 8px 0 4px; color:var(--text-mid); font-weight:600; font-size:0.85rem;">👤 개인</div>
+        ${renderCategoryBreakdownFull(bd.personal)}
+        <div style="padding: 12px 0 4px; color:var(--text-mid); font-weight:600; font-size:0.85rem;">🏢 사업</div>
+        ${renderCategoryBreakdownFull(bd.business)}
       </div>
     </div>`;
     })()}
@@ -2972,6 +3023,13 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
   const items = DATA.accounts[accountKey][listType];
   const total = items.reduce((s, i) => s + (i.amount || 0), 0);
 
+  // 고정비 전용: 비율 계산을 위한 전체 합계 미리 계산
+  let globalFixedTotal = 0;
+  if (listType === 'fixed') {
+    globalFixedTotal = getAccountKeys().reduce((s, k) =>
+      s + (DATA.accounts[k].fixed || []).reduce((ss, f) => ss + (f.amount || 0), 0), 0);
+  }
+
   const sortKey = `${accountKey}:${listType}`;
   const sortState = itemSortState[sortKey];
 
@@ -3010,15 +3068,36 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
         autoNet = b.net;
       }
       rowsHtml += `
-        <div class="item-row ${isIncome ? (hasDate ? 'income-row' : 'income-row-nodate') : (listType === 'fixed' ? 'fixed-row' : (hasDate ? 'expense-row' : ''))}">
+        <div class="item-row ${isIncome ? (hasDate ? 'income-row' : 'income-row-nodate') : (listType === 'fixed' ? 'fixed-row' : (listType === 'investment' ? 'investment-row' : (hasDate ? 'expense-row' : '')))}">
           ${hasDate ? `<input type="date" class="inp-date" value="${item.date || ''}"
             data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="date">` : ''}
           <input type="text" class="inp-name" placeholder="항목명"
             value="${item.name || ''}"
             data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="name">
-          <input type="number" class="inp-amount" placeholder="${isIncome ? '매출' : '금액'}"
+          ${listType === 'fixed' ? `<div class="amount-cell">
+            <input type="number" class="inp-amount" placeholder="금액"
+              value="${item.amount || 0}"
+              data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="amount">
+            <div class="amount-ratio">${(() => {
+              const amt = item.amount || 0;
+              const localPct = total > 0 ? (amt / total * 100).toFixed(1) : '0';
+              const globalPct = globalFixedTotal > 0 ? (amt / globalFixedTotal * 100).toFixed(1) : '0';
+              return `계좌 ${localPct}% · 전체 ${globalPct}%`;
+            })()}</div>
+          </div>` : `<input type="number" class="inp-amount" placeholder="${isIncome ? '매출' : (listType === 'investment' ? '필요금액' : '금액')}"
             value="${item.amount || 0}"
-            data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="amount">
+            data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="amount">`}
+          ${listType === 'investment' ? `<input type="number" class="inp-vat" placeholder="보유금액" title="현재 보유한 금액"
+            value="${item.heldAmount || 0}"
+            data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="heldAmount">
+          ${(() => {
+            const need = item.amount || 0;
+            const held = item.heldAmount || 0;
+            const diff = need - held;
+            const cls = diff > 0 ? 'short' : 'ok';
+            const prefix = diff > 0 ? '−' : (diff < 0 ? '+' : '');
+            return `<div class="diff-shortage ${cls}" title="차액 = 필요 − 보유 (양수면 부족)">${prefix}${fmt(Math.abs(diff))}</div>`;
+          })()}` : ''}
           ${isIncome ? `<div class="income-auto" title="부가세 = 매출 − (매출 ÷ 1.1) · 자동">${fmt(autoVat)}</div>` : `<input type="number" class="inp-vat" placeholder="부가세"
             value="${item.vat || 0}"
             data-account="${accountKey}" data-list="${listType}" data-idx="${idx}" data-field="vat">`}
@@ -3094,10 +3173,10 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
 
   // 컬럼 헤더 (테이블처럼 클릭해서 정렬) — item-row와 grid 정렬 일치
   const colsHtml = items.length === 0 ? '' : `
-    <div class="il-cols ${isIncome ? (hasDate ? 'income-row' : 'income-row-nodate') : (listType === 'fixed' ? 'fixed-row' : (hasDate ? 'expense-row' : ''))}">
+    <div class="il-cols ${isIncome ? (hasDate ? 'income-row' : 'income-row-nodate') : (listType === 'fixed' ? 'fixed-row' : (listType === 'investment' ? 'investment-row' : (hasDate ? 'expense-row' : '')))}">
       ${hasDate ? `<span class="il-col ${isActive('date')}" onclick="sortItemList('${accountKey}', '${listType}', 'date')">날짜${colArrow('date')}</span>` : ''}
       <span class="il-col ${isActive('name')}" onclick="sortItemList('${accountKey}', '${listType}', 'name')">명칭${colArrow('name')}</span>
-      <span class="il-col ${isActive('amount')}" onclick="sortItemList('${accountKey}', '${listType}', 'amount')">${isIncome ? '매출' : '금액'}${colArrow('amount')}</span>
+      <span class="il-col ${isActive('amount')}" onclick="sortItemList('${accountKey}', '${listType}', 'amount')">${isIncome ? '매출' : (listType === 'investment' ? '필요금액' : '금액')}${colArrow('amount')}</span>
       ${isIncome
         ? `<span class="il-col il-col-dim" title="부가세 = 매출 − (매출 ÷ 1.1) · 자동">부가세</span>
            <span class="il-col il-col-dim" title="재고에서 빠진 원가">원가</span>
@@ -3110,8 +3189,13 @@ function renderItemList(accountKey, listType, title, singular, hasDate, isIncome
              <span class="il-col il-col-dim" title="개인/사업">유형</span>
              <span class="il-col il-col-dim" title="세부 카테고리 (자유입력)">세부</span>
              <span class="il-col il-col-dim" title="비용/이자">태그</span>`
-          : `<span class="il-col ${isActive('vat')}" onclick="sortItemList('${accountKey}', '${listType}', 'vat')">부가세${colArrow('vat')}</span>
-             <span class="il-col il-col-dim">비용</span>`}
+          : listType === 'investment'
+            ? `<span class="il-col il-col-dim" title="현재 보유한 금액">보유금액</span>
+               <span class="il-col il-col-dim" title="차액 = 필요 − 보유 (부족한 금액)">차액</span>
+               <span class="il-col ${isActive('vat')}" onclick="sortItemList('${accountKey}', '${listType}', 'vat')">부가세${colArrow('vat')}</span>
+               <span class="il-col il-col-dim">비용</span>`
+            : `<span class="il-col ${isActive('vat')}" onclick="sortItemList('${accountKey}', '${listType}', 'vat')">부가세${colArrow('vat')}</span>
+               <span class="il-col il-col-dim">비용</span>`}
       <span class="il-col il-col-dim"></span>
     </div>
   `;
@@ -4972,6 +5056,18 @@ function renderAllTab(containerKey, accountKeys, displayName) {
         <div class="sc-value danger">${fmt(KEYS.reduce((s, k) => s + DATA.accounts[k].fixed.filter(f => f.interest).reduce((ss, f) => ss + (f.amount || 0), 0), 0))}</div>
         <div class="sc-sub">이자 태그된 항목 합계</div>
       </div>
+      ${(() => {
+        const needed = KEYS.reduce((s, k) => s + (DATA.accounts[k].investment || []).reduce((ss, i) => ss + (i.amount || 0), 0), 0);
+        const held = KEYS.reduce((s, k) => s + (DATA.accounts[k].investment || []).reduce((ss, i) => ss + (i.heldAmount || 0), 0), 0);
+        if (needed === 0 && held === 0) return '';
+        const diff = needed - held;
+        return `
+      <div class="summary-card fixed">
+        <div class="sc-label">💎 제품 투자 · 필요/보유 (전체)</div>
+        <div class="sc-value ${diff > 0 ? 'danger' : 'ok'}" style="font-size:1.15rem;">${diff > 0 ? '−' : (diff < 0 ? '+' : '')}${fmt(Math.abs(diff))}</div>
+        <div class="sc-sub">필요 ${fmt(needed)} · 보유 ${fmt(held)}</div>
+      </div>`;
+      })()}
       <div class="summary-card fixed">
         <div class="sc-label">🔻 월 순지출 (회수금 반영)</div>
         <div class="sc-value ${(totalFixed - totalFixedIncomeRecovery) > 0 ? 'danger' : 'ok'}">${fmt(totalFixed - totalFixedIncomeRecovery)}</div>
@@ -5092,6 +5188,33 @@ function renderAllTab(containerKey, accountKeys, displayName) {
         <div class="forecast-title">📅 ${displayName} 월말 잔고 예측 (향후 12개월)</div>
         <div class="forecast-sub">예상 = 이전잔고 + 수입 - 고정비 · 실제 입력 시 차이 자동계산</div>
       </div>
+    ${(() => {
+      const bd = fixedCategoryBreakdown(KEYS);
+      const pTotal = bd.personal.reduce((s, i) => s + i.amount, 0);
+      const bTotal = bd.business.reduce((s, i) => s + i.amount, 0);
+      return `
+    <div class="breakdown">
+      <div class="breakdown-toggle" onclick="this.classList.toggle('open'); this.nextElementSibling.classList.toggle('open');">
+        <span>📊 세부 카테고리별 (전체) · 클릭해서 펼치기</span>
+        <span>
+          <span style="color: var(--text-mid); margin-right: 8px; font-size:0.85rem;">👤 ${bd.personal.length}개 ${fmt(pTotal)} · 🏢 ${bd.business.length}개 ${fmt(bTotal)}</span>
+          <span class="chevron">▶</span>
+        </span>
+      </div>
+      <div class="breakdown-body">
+        <div style="padding: 8px 0 4px; color:var(--text-mid); font-weight:600; font-size:0.85rem;">👤 개인</div>
+        ${renderCategoryBreakdownFull(bd.personal)}
+        <div style="padding: 12px 0 4px; color:var(--text-mid); font-weight:600; font-size:0.85rem;">🏢 사업</div>
+        ${renderCategoryBreakdownFull(bd.business)}
+      </div>
+    </div>`;
+    })()}
+
+    <div class="forecast-section">
+      <div class="forecast-header">
+        <div class="forecast-title">📅 ${displayName} 월말 잔고 예측 (향후 12개월)</div>
+        <div class="forecast-sub">예상 = 이전잔고 + 수입 - 고정비 · 실제 입력 시 차이 자동계산</div>
+      </div>
       <div class="forecast-scroll">
         ${renderAllForecastTable(KEYS)}
       </div>
@@ -5117,28 +5240,6 @@ function renderAllTab(containerKey, accountKeys, displayName) {
         <div class="sc-sub" style="color:var(--text-dim);">실제 새 자금 = 회수금 − 원가</div>
       </div>
     </div>
-
-    ${(() => {
-      const bd = fixedCategoryBreakdown(KEYS);
-      const pTotal = bd.personal.reduce((s, i) => s + i.amount, 0);
-      const bTotal = bd.business.reduce((s, i) => s + i.amount, 0);
-      return `
-    <div class="breakdown">
-      <div class="breakdown-toggle" data-breakdown="cat-all">
-        <span>📊 세부 카테고리별 (전체)</span>
-        <span>
-          <span style="color: var(--text-mid); margin-right: 8px; font-size:0.85rem;">👤 ${bd.personal.length}개 ${fmt(pTotal)} · 🏢 ${bd.business.length}개 ${fmt(bTotal)}</span>
-          <span class="chevron">▸</span>
-        </span>
-      </div>
-      <div class="breakdown-body" data-breakdown-body="cat-all">
-        <div style="padding: 8px 12px 4px; color:var(--text-mid); font-weight:600; font-size:0.85rem;">👤 개인</div>
-        <div style="padding: 0 12px;">${renderCategoryBreakdownFull(bd.personal)}</div>
-        <div style="padding: 12px 12px 4px; color:var(--text-mid); font-weight:600; font-size:0.85rem;">🏢 사업</div>
-        <div style="padding: 0 12px 8px;">${renderCategoryBreakdownFull(bd.business)}</div>
-      </div>
-    </div>`;
-    })()}
 
     ${renderVersionSectionFor(containerKey)}
   `;
